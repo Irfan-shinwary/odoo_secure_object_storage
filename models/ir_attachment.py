@@ -8,6 +8,7 @@ import re
 import tempfile
 import uuid
 from datetime import datetime, timedelta, timezone
+import time
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -292,72 +293,197 @@ def _decrypt_stream_to_base64(response, object_key, master_key):
 class IrAttachment(models.Model):
     _inherit = "ir.attachment"
 
+
+    # @api.model
+    # def _file_write(self, value, checksum):
+    #     if not _storage_enabled():
+    #         return super()._file_write(value, checksum)
+    #
+    #     # New attachments use a random DEK wrapped by Vault Transit. Existing
+    #     # ODOOENC1/ODOOENC2 objects remain readable through the legacy branch.
+    #     _client()  # Validate MinIO configuration and bucket before contacting Vault.
+    #     if isinstance(value, memoryview):
+    #         value = value.tobytes()
+    #     elif isinstance(value, bytearray):
+    #         value = bytes(value)
+    #     elif isinstance(value, str):
+    #         value = value.encode("utf-8")
+    #     if not isinstance(value, bytes):
+    #         raise UserError("Odoo supplied attachment content in an unsupported format.")
+    #
+    #     object_key = uuid.uuid4().hex
+    #     plaintext_size = len(value)
+    #     plaintext_sha256 = hashlib.sha256(value).hexdigest()
+    #     data_key = key_provider.generate_data_key()[0]
+    #     wrapped_key = key_provider.wrap_data_key(data_key)
+    #     source = io.BytesIO(value)
+    #     encrypted_stream = streaming_encryption.encrypt_stream(
+    #         source=source,
+    #         key=data_key,
+    #         document_id=object_key,
+    #         plaintext_size=plaintext_size,
+    #         plaintext_sha256=plaintext_sha256,
+    #     )
+    #     uploaded = False
+    #     try:
+    #         object_storage.put_encrypted_stream(
+    #             stream=object_storage.IteratorReader(encrypted_stream),
+    #             plaintext_size=plaintext_size,
+    #             chunk_size=streaming_encryption.CHUNK_SIZE,
+    #             object_name=object_key,
+    #             metadata={
+    #                 "storage-format": "odoo-vault-aesgcm-stream-v1",
+    #                 "wrapped-key": wrapped_key,
+    #                 "plaintext-size": str(plaintext_size),
+    #                 "plaintext-sha256": plaintext_sha256,
+    #             },
+    #         )
+    #         uploaded = True
+    #
+    #         def cleanup_after_rollback(name=object_key):
+    #             try:
+    #                 object_storage.remove_object(name)
+    #             except Exception:
+    #                 _logger.exception(
+    #                     "Failed to clean up rolled-back Vault attachment object %s",
+    #                     name,
+    #                 )
+    #
+    #         self.env.cr.postrollback.add(cleanup_after_rollback)
+    #         return f"{_PREFIX}{os.getenv('ODOO_SECURE_MINIO_BUCKET', '').strip()}/{object_key}"
+    #     except Exception:
+    #         if uploaded:
+    #             try:
+    #                 object_storage.remove_object(object_key)
+    #             except Exception:
+    #                 _logger.exception(
+    #                     "Failed to clean up failed Vault attachment object %s",
+    #                     object_key,
+    #                 )
+    #         _logger.exception("Failed to write Vault-encrypted Odoo attachment")
+    #         raise
     @api.model
     def _file_write(self, value, checksum):
         if not _storage_enabled():
             return super()._file_write(value, checksum)
 
-        # New attachments use a random DEK wrapped by Vault Transit. Existing
-        # ODOOENC1/ODOOENC2 objects remain readable through the legacy branch.
-        _client()  # Validate MinIO configuration and bucket before contacting Vault.
-        if isinstance(value, memoryview):
-            value = value.tobytes()
-        elif isinstance(value, bytearray):
-            value = bytes(value)
-        elif isinstance(value, str):
-            value = value.encode("utf-8")
-        if not isinstance(value, bytes):
-            raise UserError("Odoo supplied attachment content in an unsupported format.")
+        total_start = time.perf_counter()
+        timings = {}
 
-        object_key = uuid.uuid4().hex
-        plaintext_size = len(value)
-        plaintext_sha256 = hashlib.sha256(value).hexdigest()
-        data_key = key_provider.generate_data_key()[0]
-        wrapped_key = key_provider.wrap_data_key(data_key)
-        source = io.BytesIO(value)
-        encrypted_stream = streaming_encryption.encrypt_stream(
-            source=source,
-            key=data_key,
-            document_id=object_key,
-            plaintext_size=plaintext_size,
-            plaintext_sha256=plaintext_sha256,
-        )
-        uploaded = False
         try:
-            object_storage.put_encrypted_stream(
-                stream=object_storage.IteratorReader(encrypted_stream),
+            # Normalize Odoo attachment data.
+            stage = time.perf_counter()
+
+            if isinstance(value, memoryview):
+                value = value.tobytes()
+            elif isinstance(value, bytearray):
+                value = bytes(value)
+            elif isinstance(value, str):
+                value = value.encode("utf-8")
+
+            if not isinstance(value, bytes):
+                raise UserError(
+                    "Odoo supplied attachment content in an unsupported format."
+                )
+
+            timings["normalize"] = time.perf_counter() - stage
+
+            object_key = uuid.uuid4().hex
+            plaintext_size = len(value)
+
+            # Calculate document checksum.
+            stage = time.perf_counter()
+            plaintext_sha256 = hashlib.sha256(value).hexdigest()
+            timings["sha256"] = time.perf_counter() - stage
+
+            # Generate and wrap the data-encryption key.
+            stage = time.perf_counter()
+            data_key = key_provider.generate_data_key()[0]
+            timings["dek_generation"] = time.perf_counter() - stage
+
+            stage = time.perf_counter()
+            wrapped_key = key_provider.wrap_data_key(data_key)
+            timings["vault_wrap"] = time.perf_counter() - stage
+
+            # Encrypt and upload.
+            source = io.BytesIO(value)
+
+            encrypted_stream = streaming_encryption.encrypt_stream(
+                source=source,
+                key=data_key,
+                document_id=object_key,
                 plaintext_size=plaintext_size,
-                chunk_size=streaming_encryption.CHUNK_SIZE,
-                object_name=object_key,
-                metadata={
-                    "storage-format": "odoo-vault-aesgcm-stream-v1",
-                    "wrapped-key": wrapped_key,
-                    "plaintext-size": str(plaintext_size),
-                    "plaintext-sha256": plaintext_sha256,
-                },
+                plaintext_sha256=plaintext_sha256,
             )
-            uploaded = True
 
-            def cleanup_after_rollback(name=object_key):
-                try:
-                    object_storage.remove_object(name)
-                except Exception:
-                    _logger.exception(
-                        "Failed to clean up rolled-back Vault attachment object %s",
-                        name,
-                    )
+            uploaded = False
 
-            self.env.cr.postrollback.add(cleanup_after_rollback)
-            return f"{_PREFIX}{os.getenv('ODOO_SECURE_MINIO_BUCKET', '').strip()}/{object_key}"
+            try:
+                stage = time.perf_counter()
+
+                object_storage.put_encrypted_stream(
+                    stream=object_storage.IteratorReader(encrypted_stream),
+                    plaintext_size=plaintext_size,
+                    chunk_size=streaming_encryption.CHUNK_SIZE,
+                    object_name=object_key,
+                    metadata={
+                        "storage-format": "odoo-vault-aesgcm-stream-v1",
+                        "wrapped-key": wrapped_key,
+                        "plaintext-size": str(plaintext_size),
+                        "plaintext-sha256": plaintext_sha256,
+                    },
+                )
+
+                timings["encryption_and_minio"] = time.perf_counter() - stage
+                uploaded = True
+
+                def cleanup_after_rollback(name=object_key):
+                    try:
+                        object_storage.remove_object(name)
+                    except Exception:
+                        _logger.exception(
+                            "Failed to clean up rolled-back Vault attachment object %s",
+                            name,
+                        )
+
+                self.env.cr.postrollback.add(cleanup_after_rollback)
+
+                total_elapsed = time.perf_counter() - total_start
+
+                _logger.info(
+                    "SECURE_UPLOAD_PERFORMANCE object=%s size_bytes=%s "
+                    "normalize=%.3fs sha256=%.3fs dek_generation=%.3fs "
+                    "vault_wrap=%.3fs encryption_and_minio=%.3fs "
+                    "total=%.3fs",
+                    object_key,
+                    plaintext_size,
+                    timings["normalize"],
+                    timings["sha256"],
+                    timings["dek_generation"],
+                    timings["vault_wrap"],
+                    timings["encryption_and_minio"],
+                    total_elapsed,
+                )
+
+                return (
+                    f"{_PREFIX}"
+                    f"{os.getenv('ODOO_SECURE_MINIO_BUCKET', '').strip()}"
+                    f"/{object_key}"
+                )
+
+            except Exception:
+                if uploaded:
+                    try:
+                        object_storage.remove_object(object_key)
+                    except Exception:
+                        _logger.exception(
+                            "Failed to clean up failed Vault attachment object %s",
+                            object_key,
+                        )
+
+                raise
+
         except Exception:
-            if uploaded:
-                try:
-                    object_storage.remove_object(object_key)
-                except Exception:
-                    _logger.exception(
-                        "Failed to clean up failed Vault attachment object %s",
-                        object_key,
-                    )
             _logger.exception("Failed to write Vault-encrypted Odoo attachment")
             raise
 
@@ -366,14 +492,50 @@ class IrAttachment(models.Model):
         if not fname or not fname.startswith(_PREFIX):
             return super()._file_read(fname)
 
-        client, bucket = _client()
-        object_key = _object_key_from_fname(fname, bucket)
+        total_started = time.perf_counter()
+        timings = {}
         response = None
+        object_key = "unknown"
+
         try:
-            response = client.get_object(bucket, object_key)
+            # 1. Resolve object reference.
+            stage = time.perf_counter()
+
+            bucket = os.getenv(
+                "ODOO_SECURE_MINIO_BUCKET", ""
+            ).strip()
+
+            object_key = _object_key_from_fname(fname, bucket)
+
+            timings["reference_resolution"] = (
+                    time.perf_counter() - stage
+            )
+
+            if not object_key:
+                raise UserError("Invalid secure attachment reference.")
+
+            # 2. Initialize MinIO download.
+            stage = time.perf_counter()
+
+            response = object_storage.get_object(object_key)
+
+            timings["minio_get_object"] = (
+                    time.perf_counter() - stage
+            )
+
+            # 3. Read the encrypted format identifier.
+            stage = time.perf_counter()
+
             first_eight = _read_exact(response, 8)
+
             if len(first_eight) != 8:
-                raise ValueError("Encrypted attachment header is truncated.")
+                raise ValueError(
+                    "Encrypted attachment header is truncated."
+                )
+
+            timings["header_read"] = (
+                    time.perf_counter() - stage
+            )
 
             class HeaderPrefixedStream:
                 def __init__(self, prefix, stream):
@@ -385,53 +547,99 @@ class IrAttachment(models.Model):
                         result = self.prefix + self.stream.read()
                         self.prefix = b""
                         return result
+
                     if size == 0:
                         return b""
+
                     result = self.prefix[:size]
                     self.prefix = self.prefix[size:]
+
                     if len(result) == size:
                         return result
-                    return result + self.stream.read(size - len(result))
 
+                    return result + self.stream.read(
+                        size - len(result)
+                    )
+
+            # 4. Vault-backed ODSDOC01 format.
             if first_eight == streaming_encryption.MAGIC:
-                # Vault-backed ODSDOC01 format: 52-byte authenticated header.
-                header = first_eight + _read_exact(response, streaming_encryption.HEADER_SIZE - 8)
+
+                stage = time.perf_counter()
+
+                header = (
+                        first_eight
+                        + _read_exact(
+                    response,
+                    streaming_encryption.HEADER_SIZE - 8,
+                )
+                )
+
                 if len(header) != streaming_encryption.HEADER_SIZE:
-                    raise ValueError("Encrypted attachment header is truncated.")
-                plaintext_size = int.from_bytes(header[12:20], "big")
+                    raise ValueError(
+                        "Encrypted attachment header is truncated."
+                    )
+
+                plaintext_size = int.from_bytes(
+                    header[12:20], "big"
+                )
+
                 plaintext_sha256 = header[20:52].hex()
+
+                timings["full_header_read"] = (
+                        time.perf_counter() - stage
+                )
+
                 if bin_size:
                     return human_size(plaintext_size)
 
-                info = client.stat_object(bucket, object_key)
-                metadata = {
-                    str(key).lower(): str(value)
-                    for key, value in (info.metadata or {}).items()
-                }
-                wrapped_key = (
-                    metadata.get("x-amz-meta-wrapped-key")
-                    or metadata.get("wrapped-key")
-                )
-                if not wrapped_key:
-                    raise ValueError("Vault-wrapped attachment key is missing.")
-                stored_size = metadata.get("x-amz-meta-plaintext-size") or metadata.get("plaintext-size")
-                if stored_size is not None and int(stored_size) != plaintext_size:
-                    raise ValueError("Attachment size metadata does not match its header.")
+                # 5. Read metadata from the existing GET response.
+                # This eliminates the additional MinIO STAT request.
+                stage = time.perf_counter()
 
-                _logger.error(
-                    "Secure storage diagnostic: object_key=%s, "
-                    "wrapped_key_present=%s, wrapped_key_length=%s, "
-                    "wrapped_key_prefix=%s, vault_addr=%s, "
-                    "transit_mount=%s, transit_key=%s",
-                    object_key,
-                    bool(wrapped_key),
-                    len(wrapped_key) if wrapped_key else 0,
-                    wrapped_key.split(":")[0] if wrapped_key else None,
-                    os.getenv("ODOO_VAULT_ADDR"),
-                    os.getenv("ODOO_VAULT_TRANSIT_MOUNT", "transit"),
-                    os.getenv("ODOO_VAULT_TRANSIT_KEY", "odoo-documents"),
+                metadata = object_storage.get_object_metadata(
+                    response
                 )
-                data_key = key_provider.unwrap_data_key(wrapped_key)
+
+                timings["metadata_read"] = (
+                        time.perf_counter() - stage
+                )
+
+                wrapped_key = metadata.get("wrapped-key")
+
+                if not wrapped_key:
+                    raise ValueError(
+                        "Vault-wrapped attachment key is missing."
+                    )
+
+                stored_size = metadata.get("plaintext-size")
+
+                if stored_size is not None:
+                    try:
+                        stored_size = int(stored_size)
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError(
+                            "Attachment size metadata is invalid."
+                        ) from exc
+
+                    if stored_size != plaintext_size:
+                        raise ValueError(
+                            "Attachment size metadata does not match its header."
+                        )
+
+                # 6. Unwrap the DEK through Vault.
+                stage = time.perf_counter()
+
+                data_key = key_provider.unwrap_data_key(
+                    wrapped_key
+                )
+
+                timings["vault_unwrap"] = (
+                        time.perf_counter() - stage
+                )
+
+                # 7. Decrypt and authenticate the complete stream.
+                stage = time.perf_counter()
+
                 plaintext_stream = streaming_encryption.decrypt_stream(
                     source=HeaderPrefixedStream(header, response),
                     key=data_key,
@@ -439,25 +647,126 @@ class IrAttachment(models.Model):
                     expected_size=plaintext_size,
                     expected_sha256=plaintext_sha256,
                 )
-                # Odoo's _file_read contract returns the complete content bytes.
-                return b"".join(plaintext_stream)
 
-            # Legacy ODOOENC1/ODOOENC2 format; retain master-key compatibility.
-            header = first_eight + _read_exact(response, _HEADER_SIZE - 8)
-            magic, _nonce_prefix, _chunk_size, plaintext_size = _parse_header(header)
-            if bin_size:
-                return human_size(plaintext_size)
-            _endpoint, _access, _secret, _bucket, _tls, master_key = _get_config()
-            return _decrypt_stream_to_bytes(
-                HeaderPrefixedStream(header, response), object_key, master_key
+                plaintext = b"".join(plaintext_stream)
+
+                timings["decrypt_and_assemble"] = (
+                        time.perf_counter() - stage
+                )
+
+                if len(plaintext) != plaintext_size:
+                    raise ValueError(
+                        "Decrypted attachment size does not match its header."
+                    )
+
+                total_elapsed = time.perf_counter() - total_started
+
+                _logger.info(
+                    "SECURE_STORAGE_PERFORMANCE "
+                    "operation=DOWNLOAD status=SUCCESS "
+                    "format=ODSDOC01 object=%s size_bytes=%s "
+                    "reference_resolution=%.4fs "
+                    "minio_get_object=%.4fs "
+                    "header_read=%.4fs "
+                    "metadata_read=%.4fs "
+                    "vault_unwrap=%.4fs "
+                    "decrypt_and_assemble=%.4fs "
+                    "total=%.4fs",
+                    object_key,
+                    plaintext_size,
+                    timings["reference_resolution"],
+                    timings["minio_get_object"],
+                    timings["header_read"],
+                    timings["metadata_read"],
+                    timings["vault_unwrap"],
+                    timings["decrypt_and_assemble"],
+                    total_elapsed,
+                )
+
+                return plaintext
+
+            # 8. Legacy ODOOENC1 / ODOOENC2 compatibility.
+            stage = time.perf_counter()
+
+            header = (
+                    first_eight
+                    + _read_exact(response, _HEADER_SIZE - 8)
             )
 
+            magic, _nonce_prefix, _chunk_size, plaintext_size = (
+                _parse_header(header)
+            )
+
+            timings["legacy_header_read"] = (
+                    time.perf_counter() - stage
+            )
+
+            if bin_size:
+                return human_size(plaintext_size)
+
+            stage = time.perf_counter()
+
+            (
+                _endpoint,
+                _access,
+                _secret,
+                _bucket,
+                _tls,
+                master_key,
+            ) = _get_config()
+
+            timings["legacy_key_configuration"] = (
+                    time.perf_counter() - stage
+            )
+
+            stage = time.perf_counter()
+
+            plaintext = _decrypt_stream_to_bytes(
+                HeaderPrefixedStream(header, response),
+                object_key,
+                master_key,
+            )
+
+            timings["legacy_decryption"] = (
+                    time.perf_counter() - stage
+            )
+
+            total_elapsed = time.perf_counter() - total_started
+
+            _logger.info(
+                "SECURE_STORAGE_PERFORMANCE "
+                "operation=DOWNLOAD status=SUCCESS "
+                "format=%s object=%s size_bytes=%s "
+                "legacy_key_configuration=%.4fs "
+                "legacy_decryption=%.4fs total=%.4fs",
+                magic.decode("ascii"),
+                object_key,
+                plaintext_size,
+                timings["legacy_key_configuration"],
+                timings["legacy_decryption"],
+                total_elapsed,
+            )
+
+            return plaintext
+
         except Exception as exc:
-            _logger.exception("Failed to read/decrypt secure Odoo attachment")
+            total_elapsed = time.perf_counter() - total_started
+
+            _logger.exception(
+                "SECURE_STORAGE_PERFORMANCE "
+                "operation=DOWNLOAD status=FAILED "
+                "object=%s stages=%s total=%.4fs error_type=%s",
+                object_key,
+                timings,
+                total_elapsed,
+                type(exc).__name__,
+            )
+
             raise UserError(
                 "The attachment could not be retrieved or authenticated. "
                 "Contact the system administrator."
             ) from exc
+
         finally:
             if response is not None:
                 try:
@@ -465,8 +774,304 @@ class IrAttachment(models.Model):
                     response.release_conn()
                 except Exception:
                     _logger.debug(
-                        "Could not clean up object-storage response", exc_info=True
+                        "Could not clean up object-storage response",
+                        exc_info=True,
                     )
+
+
+    # @api.model
+    # def _file_read(self, fname, bin_size=False):
+    #     if not fname or not fname.startswith(_PREFIX):
+    #         return super()._file_read(fname)
+    #
+    #     total_started = time.perf_counter()
+    #     timings = {}
+    #     response = None
+    #     object_key = "unknown"
+    #
+    #     try:
+    #         # 1. Resolve object reference.
+    #         stage = time.perf_counter()
+    #
+    #         bucket = os.getenv(
+    #             "ODOO_SECURE_MINIO_BUCKET", ""
+    #         ).strip()
+    #
+    #         object_key = _object_key_from_fname(fname, bucket)
+    #
+    #         timings["reference_resolution"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         if not object_key:
+    #             raise UserError("Invalid secure attachment reference.")
+    #
+    #         # 2. Initialize MinIO download.
+    #         stage = time.perf_counter()
+    #
+    #         response = object_storage.get_object(object_key)
+    #
+    #         timings["minio_get_object"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         # 3. Read the encrypted format identifier.
+    #         stage = time.perf_counter()
+    #
+    #         first_eight = _read_exact(response, 8)
+    #
+    #         if len(first_eight) != 8:
+    #             raise ValueError(
+    #                 "Encrypted attachment header is truncated."
+    #             )
+    #
+    #         timings["header_read"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         class HeaderPrefixedStream:
+    #             def __init__(self, prefix, stream):
+    #                 self.prefix = prefix
+    #                 self.stream = stream
+    #
+    #             def read(self, size=-1):
+    #                 if size is None or size < 0:
+    #                     result = self.prefix + self.stream.read()
+    #                     self.prefix = b""
+    #                     return result
+    #
+    #                 if size == 0:
+    #                     return b""
+    #
+    #                 result = self.prefix[:size]
+    #                 self.prefix = self.prefix[size:]
+    #
+    #                 if len(result) == size:
+    #                     return result
+    #
+    #                 return result + self.stream.read(
+    #                     size - len(result)
+    #                 )
+    #
+    #         # 4. Vault-backed ODSDOC01 format.
+    #         if first_eight == streaming_encryption.MAGIC:
+    #
+    #             stage = time.perf_counter()
+    #
+    #             header = (
+    #                     first_eight
+    #                     + _read_exact(
+    #                 response,
+    #                 streaming_encryption.HEADER_SIZE - 8,
+    #             )
+    #             )
+    #
+    #             if len(header) != streaming_encryption.HEADER_SIZE:
+    #                 raise ValueError(
+    #                     "Encrypted attachment header is truncated."
+    #                 )
+    #
+    #             plaintext_size = int.from_bytes(
+    #                 header[12:20], "big"
+    #             )
+    #
+    #             plaintext_sha256 = header[20:52].hex()
+    #
+    #             timings["full_header_read"] = (
+    #                     time.perf_counter() - stage
+    #             )
+    #
+    #             if bin_size:
+    #                 return human_size(plaintext_size)
+    #
+    #             # 5. Retrieve object metadata.
+    #             stage = time.perf_counter()
+    #
+    #             info = object_storage.stat_object(object_key)
+    #
+    #             metadata = {
+    #                 str(key).lower(): str(value)
+    #                 for key, value in (info.metadata or {}).items()
+    #             }
+    #
+    #             timings["minio_stat"] = (
+    #                     time.perf_counter() - stage
+    #             )
+    #
+    #             wrapped_key = (
+    #                     metadata.get("x-amz-meta-wrapped-key")
+    #                     or metadata.get("wrapped-key")
+    #             )
+    #
+    #             if not wrapped_key:
+    #                 raise ValueError(
+    #                     "Vault-wrapped attachment key is missing."
+    #                 )
+    #
+    #             stored_size = (
+    #                     metadata.get("x-amz-meta-plaintext-size")
+    #                     or metadata.get("plaintext-size")
+    #             )
+    #
+    #             if (
+    #                     stored_size is not None
+    #                     and int(stored_size) != plaintext_size
+    #             ):
+    #                 raise ValueError(
+    #                     "Attachment size metadata does not match its header."
+    #                 )
+    #
+    #             # 6. Unwrap the DEK through Vault.
+    #             stage = time.perf_counter()
+    #
+    #             data_key = key_provider.unwrap_data_key(
+    #                 wrapped_key
+    #             )
+    #
+    #             timings["vault_unwrap"] = (
+    #                     time.perf_counter() - stage
+    #             )
+    #
+    #             # 7. Decrypt and authenticate the complete stream.
+    #             stage = time.perf_counter()
+    #
+    #             plaintext_stream = streaming_encryption.decrypt_stream(
+    #                 source=HeaderPrefixedStream(header, response),
+    #                 key=data_key,
+    #                 document_id=object_key,
+    #                 expected_size=plaintext_size,
+    #                 expected_sha256=plaintext_sha256,
+    #             )
+    #
+    #             plaintext = b"".join(plaintext_stream)
+    #
+    #             timings["decrypt_and_assemble"] = (
+    #                     time.perf_counter() - stage
+    #             )
+    #
+    #             if len(plaintext) != plaintext_size:
+    #                 raise ValueError(
+    #                     "Decrypted attachment size does not match its header."
+    #                 )
+    #
+    #             total_elapsed = time.perf_counter() - total_started
+    #
+    #             _logger.info(
+    #                 "SECURE_STORAGE_PERFORMANCE "
+    #                 "operation=DOWNLOAD status=SUCCESS "
+    #                 "format=ODSDOC01 object=%s size_bytes=%s "
+    #                 "reference_resolution=%.4fs "
+    #                 "minio_get_object=%.4fs "
+    #                 "header_read=%.4fs "
+    #                 "minio_stat=%.4fs "
+    #                 "vault_unwrap=%.4fs "
+    #                 "decrypt_and_assemble=%.4fs "
+    #                 "total=%.4fs",
+    #                 object_key,
+    #                 plaintext_size,
+    #                 timings["reference_resolution"],
+    #                 timings["minio_get_object"],
+    #                 timings["header_read"],
+    #                 timings["minio_stat"],
+    #                 timings["vault_unwrap"],
+    #                 timings["decrypt_and_assemble"],
+    #                 total_elapsed,
+    #             )
+    #
+    #             return plaintext
+    #
+    #         # 8. Legacy ODOOENC1 / ODOOENC2 compatibility.
+    #         stage = time.perf_counter()
+    #
+    #         header = (
+    #                 first_eight
+    #                 + _read_exact(response, _HEADER_SIZE - 8)
+    #         )
+    #
+    #         magic, _nonce_prefix, _chunk_size, plaintext_size = (
+    #             _parse_header(header)
+    #         )
+    #
+    #         timings["legacy_header_read"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         if bin_size:
+    #             return human_size(plaintext_size)
+    #
+    #         stage = time.perf_counter()
+    #
+    #         (
+    #             _endpoint,
+    #             _access,
+    #             _secret,
+    #             _bucket,
+    #             _tls,
+    #             master_key,
+    #         ) = _get_config()
+    #
+    #         timings["legacy_key_configuration"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         stage = time.perf_counter()
+    #
+    #         plaintext = _decrypt_stream_to_bytes(
+    #             HeaderPrefixedStream(header, response),
+    #             object_key,
+    #             master_key,
+    #         )
+    #
+    #         timings["legacy_decryption"] = (
+    #                 time.perf_counter() - stage
+    #         )
+    #
+    #         total_elapsed = time.perf_counter() - total_started
+    #
+    #         _logger.info(
+    #             "SECURE_STORAGE_PERFORMANCE "
+    #             "operation=DOWNLOAD status=SUCCESS "
+    #             "format=%s object=%s size_bytes=%s "
+    #             "legacy_key_configuration=%.4fs "
+    #             "legacy_decryption=%.4fs total=%.4fs",
+    #             magic.decode("ascii"),
+    #             object_key,
+    #             plaintext_size,
+    #             timings["legacy_key_configuration"],
+    #             timings["legacy_decryption"],
+    #             total_elapsed,
+    #         )
+    #
+    #         return plaintext
+    #
+    #     except Exception as exc:
+    #         total_elapsed = time.perf_counter() - total_started
+    #
+    #         _logger.exception(
+    #             "SECURE_STORAGE_PERFORMANCE "
+    #             "operation=DOWNLOAD status=FAILED "
+    #             "object=%s stages=%s total=%.4fs error_type=%s",
+    #             object_key,
+    #             timings,
+    #             total_elapsed,
+    #             type(exc).__name__,
+    #         )
+    #
+    #         raise UserError(
+    #             "The attachment could not be retrieved or authenticated. "
+    #             "Contact the system administrator."
+    #         ) from exc
+    #
+    #     finally:
+    #         if response is not None:
+    #             try:
+    #                 response.close()
+    #                 response.release_conn()
+    #             except Exception:
+    #                 _logger.debug(
+    #                     "Could not clean up object-storage response",
+    #                     exc_info=True,
+    #                 )
 
     @api.model
     def _file_delete(self, fname):

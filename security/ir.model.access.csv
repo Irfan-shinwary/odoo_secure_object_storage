@@ -1,0 +1,5 @@
+﻿id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+
+access_secure_document_user,secure.document user,model_secure_document,base.group_user,1,1,1,1
+access_secure_document_manager,secure.document manager,model_secure_document,odoo_secure_object_storage.group_secure_document_manager,1,1,1,1
+access_secure_document_audit_manager,secure.document.audit manager,model_secure_document_audit,odoo_secure_object_storage.group_secure_document_manager,1,0,0,0

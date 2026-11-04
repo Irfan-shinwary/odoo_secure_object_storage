@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="group_secure_document_manager" model="res.groups">
+        <field name="name">Secure Document Manager</field>
+        <field name="category_id" ref="base.module_category_hidden"/>
+        <field name="implied_ids"
+               eval="[(4, ref('base.group_user'))]"/>
+    </record>
+
+
+
+    <record id="rule_secure_document_manager" model="ir.rule">
+        <field name="name">Secure documents: manager access</field>
+        <field name="model_id" ref="model_secure_document"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups"
+               eval="[(4, ref('odoo_secure_object_storage.group_secure_document_manager'))]"/>
+    </record>
+
+    <record id="rule_secure_document_audit_manager" model="ir.rule">
+        <field name="name">Secure document audit: manager only</field>
+        <field name="model_id" ref="model_secure_document_audit"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups"
+               eval="[(4, ref('odoo_secure_object_storage.group_secure_document_manager'))]"/>
+    </record>
+
+
+    <!-- Standard internal users: own documents, no deletion -->
+    <record id="access_secure_document_user" model="ir.model.access">
+        <field name="name">secure.document user</field>
+        <field name="model_id" ref="model_secure_document"/>
+        <field name="group_id" ref="base.group_user"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_unlink" eval="0"/>
+    </record>
+
+    <!-- Secure Document Managers: full document permissions -->
+    <record id="access_secure_document_manager" model="ir.model.access">
+        <field name="name">secure.document manager</field>
+        <field name="model_id" ref="model_secure_document"/>
+        <field name="group_id" ref="odoo_secure_object_storage.group_secure_document_manager"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="1"/>
+        <field name="perm_create" eval="1"/>
+        <field name="perm_unlink" eval="1"/>
+    </record>
+
+    <!-- Managers may read audit records -->
+    <record id="access_secure_document_audit_manager" model="ir.model.access">
+        <field name="name">secure.document.audit manager</field>
+        <field name="model_id" ref="model_secure_document_audit"/>
+        <field name="group_id" ref="odoo_secure_object_storage.group_secure_document_manager"/>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="0"/>
+        <field name="perm_create" eval="0"/>
+        <field name="perm_unlink" eval="0"/>
+    </record>
+    <record id="rule_secure_document_owner" model="ir.rule">
+        <field name="name">Secure documents: owner and company</field>
+        <field name="model_id" ref="model_secure_document"/>
+        <field name="domain_force">
+            [('owner_id', '=', user.id), ('company_id', 'in', company_ids)]
+        </field>
+        <field name="groups" eval="[(4, ref('base.group_user'))]"/>
+    </record>
+</odoo>
+

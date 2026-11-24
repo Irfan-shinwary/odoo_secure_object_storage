@@ -1,6 +1,6 @@
 # Configuration reference
 
-All variables must be present in the **environment of the Odoo server process**. A Docker Compose `.env` file only supplies variables to Compose interpolation and the containers explicitly configured to receive them; it does not automatically configure a separately launched Odoo process.
+All variables must be present in the **environment of the Odoo server process**. A Docker Compose `.env` file only supplies variables to Compose interpolation and containers explicitly configured to receive them; it does not automatically configure a separately launched Odoo process.
 
 | Variable | Required | Purpose |
 |---|---:|---|
@@ -9,30 +9,24 @@ All variables must be present in the **environment of the Odoo server process**.
 | `ODOO_SECURE_MINIO_ACCESS_KEY` | Yes | MinIO access key |
 | `ODOO_SECURE_MINIO_SECRET_KEY` | Yes | MinIO secret key |
 | `ODOO_SECURE_MINIO_BUCKET` | Yes | Existing bucket name |
-| `ODOO_SECURE_MINIO_TLS` | Yes | `true` for HTTPS, `false` for HTTP |
-| `ODOO_SECURE_STORAGE_MASTER_KEY` | Yes for encrypted attachment reads/writes | Base64 string decoding to exactly 32 bytes |
-| `ODOO_VAULT_ADDR` | Yes for Vault-backed secure documents | Vault URL, e.g. `https://vault.example.internal:8200` |
-| `ODOO_VAULT_TOKEN` | Yes for Vault-backed secure documents | Limited token with Transit encrypt/decrypt permissions |
-| `ODOO_VAULT_TRANSIT_KEY` | Yes for Vault-backed secure documents | Transit key name; default in code is `odoo-documents` |
-| `ODOO_VAULT_TRANSIT_MOUNT` | Yes for Vault-backed secure documents | Transit mount; default in code is `transit` |
-| `ODOO_VAULT_CA_BUNDLE` | Optional | Path to CA bundle used to verify Vault TLS |
+| `ODOO_SECURE_MINIO_TLS` | Yes | `true` for HTTPS, `false` for local development only |
+| `ODOO_VAULT_ADDR` | Yes for Vault-backed attachment writes and reads | Vault URL, e.g. `https://vault.example.internal:8200` |
+| `ODOO_VAULT_TOKEN` | Yes for Vault-backed attachment writes and reads | Limited token with Transit encrypt/decrypt permissions |
+| `ODOO_VAULT_TRANSIT_KEY` | Yes | Transit key name; default in code is `odoo-documents` |
+| `ODOO_VAULT_TRANSIT_MOUNT` | Yes | Transit mount; default in code is `transit` |
+| `ODOO_VAULT_CA_BUNDLE` | Optional | CA bundle path used to verify Vault TLS |
+| `ODOO_SECURE_STORAGE_MASTER_KEY` | Only for legacy `ODOOENC1`/`ODOOENC2` reads | Base64 string decoding to exactly 32 bytes |
 
-## Generate the attachment master key
+## Vault Transit setup
 
-Generate 32 cryptographically random bytes and Base64-encode them. Example using Python:
+Enable the Transit secrets engine and create the configured key before using Vault-backed attachment storage. The runtime token must be allowed to call the Transit `encrypt` and `decrypt` endpoints for that key. It should not receive broad Vault administration or key-management permissions.
 
-```python
-import base64
-import secrets
-print(base64.b64encode(secrets.token_bytes(32)).decode("ascii"))
-```
+Use a separate administrative identity for key creation, rotation and policy administration. Do not configure Odoo with a Vault root token.
 
-Run this once per environment. Store the result in a secret manager and secure offline backup. Do not regenerate it on every restart or deployment. Do not use the same value across development, test and production.
+## Legacy master key
 
-## Boolean values
-
-Use explicit values such as `1` or `0`. For MinIO TLS, set `false` only for local development on a trusted loopback interface. Production should use HTTPS.
+Only configure `ODOO_SECURE_STORAGE_MASTER_KEY` if the Odoo database still references legacy `ODOOENC1` or `ODOOENC2` encrypted objects. It must be Base64 and decode to exactly 32 bytes. Preserve the exact historical value in a protected backup until no legacy objects remain and restore testing proves it is no longer needed.
 
 ## Environment separation
 
-Maintain separate credentials, buckets, master keys, Vault Transit keys/tokens and persistent volumes for development, test/staging and production. Never copy production secrets into developer workstations.
+Maintain separate credentials, buckets, Vault Transit keys/tokens and persistent volumes for development, test/staging and production. Never copy production secrets into developer workstations.

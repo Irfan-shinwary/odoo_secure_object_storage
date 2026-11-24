@@ -5,7 +5,7 @@
     "category": "Technical",
     "license": "LGPL-3",
     "author": "Custom implementation",
-    "depends": ["base", "web"],
+    "depends": ["base", "web","mail"],
     "external_dependencies": {
         "python": ["minio", "cryptography", "requests"],
     },

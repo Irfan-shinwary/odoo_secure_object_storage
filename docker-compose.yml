@@ -1,0 +1,34 @@
+# LOCAL DEVELOPMENT / INTEGRATION TESTING ONLY.
+# This file intentionally binds ports to localhost and disables Vault TLS.
+# Do not use this configuration as-is in production.
+services:
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: odoo-secure-vault
+    command: ["server", "-config=/vault/config/vault.hcl"]
+    cap_add:
+      - IPC_LOCK
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - vault_data:/vault/file
+      - ./vault/config:/vault/config:ro
+    restart: unless-stopped
+
+  minio:
+    image: ghcr.io/world-meteorological-organization/wis2box-minio:latest
+    container_name: odoo-secure-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+volumes:
+  minio_data:
+  vault_data:

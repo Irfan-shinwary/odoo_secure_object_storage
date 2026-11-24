@@ -47,7 +47,7 @@ Ensure Odoo cron processing is enabled and monitor the automatic discovery and m
 
 - Deploy to staging first.
 - Pin the addon to a reviewed commit/tag.
-- Back up database, filestore and MinIO before migration or upgrade.
+- Back up PostgreSQL, the original filestore, MinIO object data and Vault persistent storage/Transit key material before migration or upgrade.
 - Do not delete source filestore data immediately after migration.
 - If migration fails, stop further migration, preserve logs and failed records, and investigate before retrying.
 - A rollback of Python code alone may not reverse attachment references already migrated to MinIO. Ensure the previous code can still read secure references or prepare a tested data rollback procedure.

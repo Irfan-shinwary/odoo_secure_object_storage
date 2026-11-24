@@ -143,6 +143,12 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         self.assertTrue(attachment.store_fname.startswith("secure-minio://"))
         return attachment.store_fname.rsplit("/", 1)[-1]
 
+    def _read_attachment_content(self, attachment):
+        # Force Odoo to execute the storage read path instead of returning
+        # values cached by the create/write operation in this transaction.
+        attachment.invalidate_recordset(["raw", "datas", "db_datas"])
+        return base64.b64decode(attachment.datas)
+
     def test_create_and_read_vault_wrapped_attachment(self):
         original = b"Secure attachment integration test."
         attachment = self._create_attachment(original)
@@ -163,7 +169,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
             str(len(original)),
         )
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             original,
         )
 
@@ -175,7 +181,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         attachment.datas = base64.b64encode(replacement)
 
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             replacement,
         )
 
@@ -185,7 +191,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
     def test_empty_attachment(self):
         attachment = self._create_attachment(b"", "empty.txt")
 
-        self.assertEqual(base64.b64decode(attachment.datas), b"")
+        self.assertEqual(self._read_attachment_content(attachment), b"")
         self.assertFalse(
             attachment.store_fname,
             "Odoo normally stores empty attachment content in the database.",
@@ -199,7 +205,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         self.assertTrue(
             self.fake_storage.objects[object_name].startswith(b"ODSDOC01")
         )
-        self.assertEqual(base64.b64decode(attachment.datas), original)
+        self.assertEqual(self._read_attachment_content(attachment), original)
 
     def test_tampered_ciphertext_is_rejected(self):
         attachment = self._create_attachment(b"tamper detection test")

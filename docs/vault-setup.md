@@ -1,6 +1,6 @@
 # HashiCorp Vault Transit setup
 
-Vault Transit is used by the separate `secure.document` model to wrap and unwrap DEKs. It is not currently the key-wrapping mechanism for the `ir.attachment` encryption path; that path uses `ODOO_SECURE_STORAGE_MASTER_KEY`.
+Vault Transit wraps and unwraps per-object DEKs for new `ir.attachment` objects and for the separate `secure.document` model. Legacy `ODOOENC1`/`ODOOENC2` attachment objects still require `ODOO_SECURE_STORAGE_MASTER_KEY` for decryption.
 
 ## 1. Start local development Vault
 
@@ -88,7 +88,7 @@ For production use HTTPS, a trusted CA and `ODOO_VAULT_CA_BUNDLE` if a private C
 - **Initial root token:** secure administrator-only storage; revoke or tightly control after bootstrap according to Vault operational policy.
 - **Odoo application token:** secret manager or protected service environment file readable only by the Odoo service account. Use a limited policy and rotation procedure.
 - **Transit key material:** remains in Vault's persistent storage; protect and back up that storage.
-- **Attachment master key:** separate secret, not a Vault unseal key or Transit token. Store in a secrets manager and secure backup; losing it can make encrypted attachments unreadable.
+- **Legacy attachment master key:** separate secret, not a Vault unseal key or Transit token. Keep it in a secrets manager and secure backup only while legacy `ODOOENC1`/`ODOOENC2` objects remain; losing it makes those remaining objects unreadable.
 
 ## 8. Production requirements
 

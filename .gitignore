@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Odoo/runtime
+*.log
+*.pid
+*.sock
+*.dump
+*.sql
+ filestore/
+.sessions/
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+vault-data/
+minio-data/
+vault/file/
+vault/logs/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

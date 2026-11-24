@@ -28,7 +28,7 @@ Production must use a supported, pinned and scanned image, TLS, network restrict
 2. Deploy a supported MinIO version with persistent, resilient storage. Create a private bucket and least-privilege Odoo identity.
 3. Deploy Vault using an approved production storage backend and TLS. Configure HA/auto-unseal only according to organizational requirements.
 4. Initialize Vault once, securely distribute unseal/recovery material, enable Transit and create the required key and limited policy.
-5. Generate a unique production attachment master key (32 random bytes, Base64-encoded). Store it in an enterprise secrets manager and establish controlled recovery access.
+5. Configure a production Vault Transit key and a dedicated limited Odoo runtime identity/token. Preserve the historical Base64 32-byte attachment master key in a protected secret store only if legacy `ODOOENC1`/`ODOOENC2` objects remain.
 6. Configure Odoo service environment through the deployment platform's secret manager, not a committed `.env` file.
 7. Install the exact reviewed addon commit and Python dependencies in the Odoo environment.
 8. Test upload, download, secure-document Transit operations, access control and restore in staging.

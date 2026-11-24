@@ -173,6 +173,28 @@ class TestSecureAttachmentWorkflows(TransactionCase):
             original,
         )
 
+
+    def test_each_attachment_gets_a_distinct_wrapped_dek(self):
+        first = self._create_attachment(b"first confidential payload")
+        second = self._create_attachment(b"second confidential payload")
+
+        first_name = self._stored_object(first)
+        second_name = self._stored_object(second)
+
+        first_wrapped = self.fake_storage.metadata[first_name]["wrapped-key"]
+        second_wrapped = self.fake_storage.metadata[second_name]["wrapped-key"]
+
+        self.assertNotEqual(first_name, second_name)
+        self.assertNotEqual(first_wrapped, second_wrapped)
+        self.assertEqual(
+            self._read_attachment_content(first),
+            b"first confidential payload",
+        )
+        self.assertEqual(
+            self._read_attachment_content(second),
+            b"second confidential payload",
+        )
+
     def test_update_attachment_content(self):
         original = b"Original content"
         replacement = b"Updated attachment content"

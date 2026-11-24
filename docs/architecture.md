@@ -2,53 +2,60 @@
 
 ## Components
 
-- **Odoo 17:** attachment metadata and storage references remain in PostgreSQL. The addon overrides Odoo attachment file operations to store encrypted object data in MinIO.
-- **MinIO:** private S3-compatible object storage. Attachment references use `secure-minio://<bucket>/<32-hex-object-key>`.
-- **HashiCorp Vault Transit:** used by the separate `secure.document` workflow to wrap and unwrap randomly generated data-encryption keys.
-- **PostgreSQL:** stores Odoo attachment metadata and migration tracking records.
+- **Odoo 17:** attachment metadata and storage references remain in PostgreSQL. The addon overrides Odoo attachment file operations.
+- **MinIO:** private S3-compatible object storage. Secure attachment references use `secure-minio://<bucket>/<32-hex-object-key>`.
+- **HashiCorp Vault Transit:** wraps and unwraps random data-encryption keys (DEKs) for newly written `ir.attachment` objects and the separate `secure.document` workflow.
+- **PostgreSQL:** stores Odoo attachment metadata, migration tracking records and secure-document metadata.
+- **Vault object metadata:** MinIO stores the wrapped DEK and plaintext integrity metadata alongside the encrypted attachment object.
 
-## Two distinct encryption paths
+## Current Odoo `ir.attachment` encryption path
 
-Do not conflate these implementations.
+The active `models/ir_attachment.py` implementation uses the following process for new secure attachment writes:
 
-### A. Odoo `ir.attachment`
+1. Odoo supplies the attachment bytes.
+2. The addon generates a cryptographically random 32-byte DEK using `secrets.token_bytes(32)`.
+3. The DEK is wrapped by Vault Transit using the configured Transit key.
+4. The plaintext is encrypted with AES-256-GCM using the DEK. The stream uses a 4 MiB default chunk size, a random nonce per chunk, and authenticated additional data binding the stream to the object identifier, chunk index, plaintext size and SHA-256 digest.
+5. The encrypted stream is uploaded to MinIO.
+6. MinIO object metadata includes the storage format identifier, Vault-wrapped DEK, plaintext size and SHA-256 digest.
+7. Odoo stores a `secure-minio://<bucket>/<object-key>` reference in `ir.attachment.store_fname`.
 
-The current `models/ir_attachment.py` implementation:
+During a read, the addon retrieves the object and its metadata, validates the expected size metadata, unwraps the DEK through Vault, then authenticates and decrypts the stream. The complete plaintext is returned through Odoo's attachment API.
 
-1. Reads `ODOO_SECURE_STORAGE_MASTER_KEY` as Base64.
-2. Requires the decoded key to be exactly 32 bytes.
-3. Derives a 32-byte AES key using HKDF-SHA256, with the object key as salt and a version-specific context string.
-4. Encrypts attachment data using AES-GCM in chunks of 4 MiB.
-5. Writes an encrypted object to MinIO and records a `secure-minio://` reference in Odoo.
+New Vault-backed attachment objects use the `ODSDOC01` format. The 52-byte header contains the magic identifier, chunk size, plaintext size and SHA-256 digest. Each encrypted chunk contains a length field, a 12-byte nonce and AES-GCM ciphertext including its authentication tag.
 
-The current source defines `ODOOENC1` and `ODOOENC2` formats. The master key is required to decrypt these objects. The attachment path does **not** currently call Vault Transit to wrap a per-object DEK.
+## Legacy attachment formats
 
-### B. Separate `secure.document` model
+The addon retains read support for `ODOOENC1` and `ODOOENC2`.
 
-The `secure.document` workflow uses:
+- Legacy objects use keys derived from `ODOO_SECURE_STORAGE_MASTER_KEY` using HKDF-SHA256 with version-specific context.
+- `ODOO_SECURE_STORAGE_MASTER_KEY` is Base64-encoded and must decode to exactly 32 bytes.
+- The legacy reader is used only when the downloaded object begins with `ODOOENC1` or `ODOOENC2`.
+- New attachment writes use Vault-wrapped DEKs and `ODSDOC01`; the legacy formats should not be generated again.
 
-1. A random 32-byte DEK generated in the application.
-2. Vault Transit `encrypt` to wrap the DEK.
-3. AES-GCM chunked streaming encryption using the DEK.
-4. Vault Transit `decrypt` to unwrap the DEK before download.
+Keep the legacy key available until all legacy objects have been migrated, verified and included in a successful restore test. Do not rotate or discard it casually.
 
-The stream format uses the `ODSDOC01` magic header and 4 MiB default chunks. This is a separate model and workflow from the Odoo `ir.attachment` override.
+## Separate `secure.document` model
+
+The `secure.document` model also generates a random 32-byte DEK, wraps it with Vault Transit, and encrypts content with the streaming AES-GCM service. Its wrapped key is stored in the PostgreSQL `secure.document.wrapped_key` field, whereas the `ir.attachment` integration stores the wrapped DEK as MinIO user metadata.
+
+The two workflows share cryptographic services but have different metadata and lifecycle handling.
 
 ## Trust boundaries
 
-- Odoo requires network access to MinIO and, for `secure.document`, Vault.
-- MinIO stores ciphertext for the encrypted paths.
-- PostgreSQL stores attachment metadata, storage references, and wrapped-key metadata for secure documents.
-- The master key and Vault token must be available to the Odoo process through a secret-management mechanism.
-- Administrators who can read application process environments, secrets, PostgreSQL or object storage may have significant access. Apply least privilege and audit access.
+- Odoo requires network access to MinIO and Vault for new attachment writes and Vault-backed reads.
+- MinIO stores ciphertext and, for attachment objects, the wrapped DEK and integrity metadata.
+- PostgreSQL stores attachment metadata and storage references.
+- Vault Transit protects DEKs; the Odoo runtime token should have only the required encrypt/decrypt permissions.
+- Administrators who can read application process environments, Vault policy/key material, PostgreSQL or object storage may have significant access. Apply least privilege and audit access.
 
 ## Key-loss implications
 
-- Losing or changing `ODOO_SECURE_STORAGE_MASTER_KEY` can make existing encrypted `ir.attachment` objects unreadable.
-- Losing Vault's persistent data or Transit key material can make Vault-wrapped DEKs unusable.
+- Losing Vault's persistent data or the Transit key material can make wrapped DEKs unusable and therefore make new-format attachments unreadable.
 - Losing the Vault token alone is recoverable by issuing a new limited token, provided the Transit key remains available.
-- Losing an unseal threshold of keys or the Vault storage itself can prevent Vault recovery. Maintain documented, tested recovery procedures.
+- Losing the legacy master key makes any remaining `ODOOENC1` or `ODOOENC2` objects unreadable.
+- Keep Vault recovery material and the legacy master key (while legacy objects remain) in separate, access-controlled backup procedures.
 
 ## Migration behavior
 
-The migration tracking model discovers eligible legacy Odoo attachments, stores source metadata, then migrates in batches. It verifies uploaded content by reading it back and checking size and SHA-1 before updating the Odoo storage reference. The normal migration path has a 100 MiB per-file limit. Review the current source before changing this limit or migration behavior.
+The legacy filestore migration model discovers eligible Odoo attachments, stores source metadata, then migrates in batches. It verifies uploaded content by reading it back and checking size and SHA-1 before updating the Odoo storage reference. The normal migration path has a 100 MiB per-file limit. The new secure object is produced by the active Vault-backed `_file_write` implementation.

@@ -12,11 +12,11 @@ Check:
 
 ## Missing master key / invalid Base64 / wrong key length
 
-The current attachment implementation requires `ODOO_SECURE_STORAGE_MASTER_KEY` to be valid Base64 decoding to exactly 32 bytes. Confirm the same original key is configured. Do not generate a replacement key to fix this error; doing so will not decrypt existing objects.
+This error applies when reading legacy `ODOOENC1`/`ODOOENC2` objects. The legacy `ODOO_SECURE_STORAGE_MASTER_KEY` must be valid Base64 decoding to exactly 32 bytes. Confirm the same original key is configured; do not generate a replacement. New `ODSDOC01` attachments use Vault Transit instead.
 
 ## Vault Transit errors
 
-For the `secure.document` workflow:
+For new `ir.attachment` reads/writes and the `secure.document` workflow:
 - Confirm Vault is running and unsealed.
 - Confirm `ODOO_VAULT_ADDR` is reachable from Odoo.
 - Confirm Transit is enabled at the configured mount.
@@ -28,7 +28,7 @@ The Odoo Transit integration logs performance/error metadata. Never log or paste
 
 ## Attachment download fails after restart
 
-Check that the attachment master key is still the same, MinIO objects and bucket exist, Odoo can reach MinIO, and PostgreSQL references match object names.
+Check MinIO objects and bucket, Vault availability and Transit key access, Odoo network access, and PostgreSQL references. If the object is legacy `ODOOENC1`/`ODOOENC2`, also check that the original master key is still configured.
 
 ## Migration cron does not execute
 

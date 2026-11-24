@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Main module root menu -->
+    <menuitem id="menu_secure_storage_root"
+              name="Secure Storage"
+              sequence="50"
+              groups="odoo_secure_object_storage.group_secure_storage_migration_manager,odoo_secure_object_storage.group_secure_document_manager"/>
+
+    <!-- Main module root menu -->
+    <menuitem id="menu_secure_storage_migration"
+              name="Migration"
+              sequence="1"
+              parent="odoo_secure_object_storage.menu_secure_storage_root"
+              groups="odoo_secure_object_storage.group_secure_storage_migration_manager,odoo_secure_object_storage.group_secure_document_manager"/>
+
+    <!-- Main module root menu -->
+    <menuitem id="menu_secure_storage_configuration"
+              name="Configuration"
+              sequence="2"
+              parent="odoo_secure_object_storage.menu_secure_storage_root"
+              groups="odoo_secure_object_storage.group_secure_storage_migration_manager,odoo_secure_object_storage.group_secure_document_manager"/>
+
+
+</odoo>

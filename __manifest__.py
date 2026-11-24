@@ -11,8 +11,18 @@
     },
     "data": [
         "security/security.xml",
+        'security/ir.model.access.csv',
+
+        "data/secure_storage_config_data.xml",
+        'wizard/discovery_wizard.xml',
+        'views/menu.xml',
+        'views/migration_views.xml',
+        "views/secure_storage_config_views.xml",
+
+        "data/migration_cron.xml",
         "data/secure_attachment_cron.xml",
     ],
     "installable": True,
-    "application": False,
+    "application": True,
+    'license': 'LGPL-3',
 }

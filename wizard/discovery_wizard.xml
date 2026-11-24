@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<odoo>
+
+
+    <record id="view_secure_storage_migration_discovery_form"
+            model="ir.ui.view">
+
+        <field name="name">
+            secure.storage.migration.discovery.form
+        </field>
+
+        <field name="model">secure.storage.migration.discovery</field>
+
+        <field name="arch" type="xml">
+
+            <form string="Legacy Attachment Discovery">
+
+                <sheet>
+
+                    <!-- Introduction -->
+                    <div class="oe_title">
+                        <h2>Discover Legacy Attachments</h2>
+                    </div>
+
+                    <div class="alert alert-info" role="alert">
+                        <strong>Purpose:</strong>
+                        This wizard scans Odoo's existing attachment records
+                        and identifies files stored in the legacy filestore
+                        that need to be migrated to secure object storage.
+
+                        <br/>
+                        <br/>
+
+                        Select a batch size and click
+                        <strong>Scan Next Batch</strong>
+                        to begin.
+                        Repeat the scan until discovery is complete.
+                    </div>
+
+                    <!-- Scan Configuration -->
+                    <group string="Scan Configuration">
+
+                        <group>
+                            <field name="batch_size"
+                                   help="Number of attachment records to scan in one batch. Allowed range: 1–5,000."/>
+
+                        </group>
+
+                        <group>
+                            <field name="last_attachment_id"
+                                   readonly="1"
+                                   help="The last attachment ID processed. The next scan continues after this ID."/>
+
+                        </group>
+
+                    </group>
+
+                    <separator string="Latest Scan Results"/>
+
+                    <!-- Results -->
+                    <group>
+
+                        <group>
+                            <field name="discovered_count"
+                                   string="New Migration Records"
+                                   readonly="1"/>
+                        </group>
+
+                    </group>
+
+                    <group>
+                        <field name="message"
+                               string="Scan Summary"
+                               nolabel="1"
+                               readonly="1"
+                               placeholder="No scan has been performed yet."/>
+                    </group>
+
+                    <div class="alert alert-warning" role="alert">
+                        <strong>Important:</strong>
+                        Discovery only creates migration tracking records.
+                        It does not move or encrypt files. Actual migration
+                        is performed separately from the Migration Records menu.
+                    </div>
+
+                </sheet>
+
+                <footer>
+
+                    <button name="action_discover_batch"
+                            string="Scan Next Batch"
+                            type="object"
+                            class="btn-primary"
+                            icon="fa-search"/>
+
+                    <button name="action_reset_cursor"
+                            string="Reset Scan Progress"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-refresh"
+                            confirm="Are you sure you want to reset the scan progress? Existing migration tracking records will not be deleted."/>
+
+                    <button string="Close"
+                            special="cancel"
+                            class="btn-secondary"/>
+
+                </footer>
+
+            </form>
+
+        </field>
+
+    </record>
+
+    <!-- ===================================================== -->
+    <!-- DISCOVERY WIZARD ACTION                               -->
+    <!-- ===================================================== -->
+
+    <record id="action_secure_storage_migration_discovery"
+            model="ir.actions.act_window">
+        <field name="name">Discover Legacy Attachments</field>
+        <field name="res_model">secure.storage.migration.discovery</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_secure_storage_migration_discovery_form"/>
+        <field name="target">new</field>
+
+    </record>
+
+
+    <!-- Discover Legacy Attachments -->
+    <menuitem id="menu_secure_storage_migration_discovery"
+              name="Discover Attachments"
+              parent="menu_secure_storage_migration"
+              action="action_secure_storage_migration_discovery"
+              sequence="1"
+              groups="odoo_secure_object_storage.group_secure_storage_migration_manager,odoo_secure_object_storage.group_secure_document_manager"/>
+
+</odoo>

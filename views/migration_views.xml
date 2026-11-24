@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===================================================== -->
+    <!-- MIGRATION TRACKING LIST VIEW                          -->
+    <!-- ===================================================== -->
+
+    <record id="view_secure_storage_migration_tree" model="ir.ui.view">
+        <field name="name">secure.storage.migration.tree</field>
+        <field name="model">secure.storage.migration</field>
+        <field name="arch" type="xml">
+
+            <tree string="Attachment Migration">
+
+                <header>
+                    <button name="action_migrate_selected"
+                            string="Migrate Selected"
+                            type="object"
+                            class="btn-primary"/>
+                </header>
+
+                <field name="attachment_id"/>
+                <field name="attachment_name"/>
+                <field name="source_file_size"/>
+                <field name="source_checksum"/>
+                <field name="status" widget="badge"/>
+                <field name="retry_count"/>
+                <field name="target_object_key"/>
+                <field name="started_at"/>
+                <field name="completed_at"/>
+
+            </tree>
+        </field>
+    </record>
+
+
+    <!-- ===================================================== -->
+    <!-- MIGRATION TRACKING FORM VIEW                          -->
+    <!-- ===================================================== -->
+
+    <record id="view_secure_storage_migration_form" model="ir.ui.view">
+        <field name="name">secure.storage.migration.form</field>
+        <field name="model">secure.storage.migration</field>
+        <field name="arch" type="xml">
+
+            <form string="Attachment Migration">
+
+                <header>
+
+                    <button name="action_migrate_one"
+                            string="Migrate Attachment"
+                            type="object"
+                            class="btn-primary"
+                            invisible="status not in ['pending', 'failed']"/>
+
+                    <field name="status"
+                           widget="statusbar"
+                           statusbar_visible="pending,processing,done,failed,skipped"/>
+
+                </header>
+
+                <sheet>
+
+                    <group>
+
+                        <group string="Attachment Information">
+
+                            <field name="attachment_id"/>
+                            <field name="attachment_name"/>
+                            <field name="mimetype"/>
+                            <field name="source_file_size"/>
+
+                        </group>
+
+                        <group string="Migration Information">
+
+                            <field name="status"/>
+                            <field name="retry_count"/>
+                            <field name="started_at"/>
+                            <field name="completed_at"/>
+
+                        </group>
+
+                    </group>
+
+                    <notebook>
+
+                        <page string="Original Storage">
+
+                            <group>
+
+                                <field name="source_store_fname"/>
+                                <field name="source_checksum"/>
+                                <field name="source_write_date"/>
+
+                            </group>
+
+                        </page>
+
+                        <page string="Secure Storage">
+
+                            <group>
+
+                                <field name="target_object_key"/>
+
+                            </group>
+
+                        </page>
+
+                        <page string="Error Details">
+
+                            <field name="error_message"
+                                   nolabel="1"
+                                   readonly="1"/>
+
+                        </page>
+
+                    </notebook>
+
+                </sheet>
+
+            </form>
+
+        </field>
+    </record>
+
+
+    <!-- ===================================================== -->
+    <!-- MIGRATION SEARCH VIEW                                 -->
+    <!-- ===================================================== -->
+
+    <record id="view_secure_storage_migration_search" model="ir.ui.view">
+        <field name="name">secure.storage.migration.search</field>
+        <field name="model">secure.storage.migration</field>
+        <field name="arch" type="xml">
+
+            <search string="Search Attachment Migrations">
+
+                <field name="attachment_name"/>
+                <field name="attachment_id"/>
+                <field name="status"/>
+
+                <separator/>
+
+                <filter name="pending"
+                        string="Pending"
+                        domain="[('status', '=', 'pending')]"/>
+
+                <filter name="processing"
+                        string="Processing"
+                        domain="[('status', '=', 'processing')]"/>
+
+                <filter name="failed"
+                        string="Failed"
+                        domain="[('status', '=', 'failed')]"/>
+
+                <filter name="done"
+                        string="Migrated"
+                        domain="[('status', '=', 'done')]"/>
+
+                <filter name="skipped"
+                        string="Skipped"
+                        domain="[('status', '=', 'skipped')]"/>
+
+                <separator/>
+
+                <group expand="0" string="Group By">
+
+                    <filter name="group_status"
+                            string="Status"
+                            context="{'group_by': 'status'}"/>
+
+                </group>
+
+            </search>
+
+        </field>
+    </record>
+
+
+    <!-- ===================================================== -->
+    <!-- MIGRATION TRACKING ACTION                             -->
+    <!-- ===================================================== -->
+
+    <record id="action_secure_storage_migration" model="ir.actions.act_window">
+        <field name="name">Migration Records</field>
+        <field name="res_model">secure.storage.migration</field>
+        <field name="view_mode">tree,form</field>
+        <field name="search_view_id" ref="view_secure_storage_migration_search"/>
+         <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create new ...
+            </p>
+        </field>
+
+    </record>
+
+
+
+    <!-- Migration Records -->
+    <menuitem id="menu_secure_storage_migration_records"
+              name="Migration Records"
+              parent="menu_secure_storage_migration"
+              action="action_secure_storage_migration"
+              sequence="2"
+              groups="odoo_secure_object_storage.group_secure_storage_migration_manager,odoo_secure_object_storage.group_secure_document_manager"
+    />
+
+
+</odoo>
+
+

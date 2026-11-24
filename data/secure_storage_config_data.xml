@@ -1,0 +1,20 @@
+
+<odoo noupdate="1">
+
+    <record id="secure_storage_config_main"
+            model="secure.storage.config">
+
+        <field name="name">Secure Storage Configuration</field>
+        <field name="code">main</field>
+
+        <field name="auto_migrate" eval="False"/>
+
+        <field name="discovery_batch_size">500</field>
+        <field name="migration_batch_size">20</field>
+        <field name="retry_limit">5</field>
+
+        <field name="last_discovered_attachment_id">0</field>
+
+    </record>
+
+</odoo>

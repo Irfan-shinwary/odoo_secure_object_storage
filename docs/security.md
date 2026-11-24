@@ -6,15 +6,15 @@ Never commit or distribute:
 - `.env` files containing real credentials.
 - Vault root tokens, application tokens or unseal/recovery keys.
 - MinIO root passwords or application secret keys.
-- `ODOO_SECURE_STORAGE_MASTER_KEY`.
+- `ODOO_SECURE_STORAGE_MASTER_KEY` while legacy `ODOOENC1`/`ODOOENC2` objects remain.
 - Database passwords, dumps, private TLS keys or certificate private material.
 
 Use a secrets manager or protected service environment. Restrict read access to the Odoo service account and authorized administrators.
 
 ## Key separation
 
-- Attachment master key: 32 random bytes encoded as Base64; required by the current `ir.attachment` encryption implementation.
-- Vault Transit key: protects wrapped DEKs for the separate `secure.document` workflow.
+- Vault Transit key: wraps per-object DEKs for new `ir.attachment` objects and `secure.document` records.
+- Legacy attachment master key: 32 random bytes encoded as Base64; required only to read remaining `ODOOENC1`/`ODOOENC2` objects.
 - Vault unseal keys: unlock Vault's storage; they are not application encryption keys.
 - Vault application token: authenticates Odoo to Transit; it is not an encryption key.
 
@@ -34,4 +34,4 @@ Review Odoo groups and record access rules. Review Vault audit-device configurat
 
 ## Key rotation
 
-Do not rotate the attachment master key without a tested re-encryption/multi-key migration design. Existing objects are derived from that key. For Vault Transit, understand key-version retention and the effect on existing ciphertext before rotating or deleting key versions. Back up and test recovery first.
+Preserve the legacy attachment master key until all legacy objects are migrated and verified. For Vault Transit, understand key-version retention and the effect on existing wrapped DEKs before rotating or deleting key versions. Back up and test recovery first.

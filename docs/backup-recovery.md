@@ -6,8 +6,8 @@ A successful backup is not sufficient; perform scheduled restore exercises.
 
 1. PostgreSQL database: attachment metadata, secure storage references, migration records and secure-document metadata.
 2. MinIO object data: encrypted attachment and secure-document objects.
-3. Attachment master key: required to decrypt the current `ir.attachment` encrypted objects.
-4. Vault persistent data and Transit key material: required to unwrap DEKs in the `secure.document` workflow.
+3. Vault persistent data and Transit key material: required to unwrap DEKs for new `ir.attachment` objects and `secure.document` records.
+4. Legacy attachment master key: required only while `ODOOENC1`/`ODOOENC2` objects remain.
 5. Vault unseal/recovery material and configuration.
 6. Odoo configuration and the exact addon version/commit.
 
@@ -27,7 +27,7 @@ A database-only backup is not a complete backup of this system. An object-store-
 1. Restore Vault storage and unseal Vault; verify Transit key availability before testing secure documents.
 2. Restore MinIO objects and verify bucket/object availability.
 3. Restore PostgreSQL to a consistent point.
-4. Restore the exact attachment master key into the Odoo secret environment.
+4. Restore the legacy attachment master key into the Odoo secret environment if legacy objects remain.
 5. Restore Odoo configuration and the matching addon version.
 6. Start Odoo in a controlled state and test representative downloads from both encrypted workflows.
 7. Reconcile missing references or objects before returning service to users.
@@ -39,7 +39,8 @@ The exact ordering and consistency mechanism must be adapted to the production s
 At least periodically, test:
 - Database restore.
 - MinIO object restore.
-- Master-key retrieval and attachment decryption.
+- Vault Transit DEK unwrap and new-format attachment decryption.
+- Legacy master-key retrieval and decryption, if legacy objects remain.
 - Vault unseal and Transit decrypt.
 - Full Odoo restart and document download.
 - Recovery after loss of an application token by issuing a replacement limited token.

@@ -236,6 +236,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         damaged = bytearray(self.fake_storage.objects[object_name])
         damaged[-1] ^= 1
         self.fake_storage.objects[object_name] = bytes(damaged)
+        attachment.invalidate_recordset(["raw", "datas", "db_datas"])
 
         with self.assertRaises(UserError):
             _ = attachment.datas
@@ -244,6 +245,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         attachment = self._create_attachment(b"wrapped key metadata test")
         object_name = self._stored_object(attachment)
         self.fake_storage.metadata[object_name].pop("wrapped-key")
+        attachment.invalidate_recordset(["raw", "datas", "db_datas"])
 
         with self.assertRaises(UserError):
             _ = attachment.datas

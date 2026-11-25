@@ -3,23 +3,14 @@ import base64
 import io
 import os
 from unittest.mock import patch
-from odoo.exceptions import UserError
 
+from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase
 
 from odoo.addons.odoo_secure_object_storage.services import (
     key_provider,
     object_storage,
     streaming_encryption,
-)
-
-import base64
-import os
-
-from unittest.mock import patch
-
-from odoo.addons.odoo_secure_object_storage.models import (
-    ir_attachment as attachment_model,
 )
 
 

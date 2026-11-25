@@ -64,6 +64,25 @@ def _client():
 
 
 
+def _object_key_from_fname(fname, bucket):
+    """Validate and extract the MinIO object key from an Odoo storage reference."""
+    if not fname or not fname.startswith(_PREFIX):
+        return None
+
+    reference = fname[len(_PREFIX):]
+    expected_prefix = bucket + "/"
+    if not reference.startswith(expected_prefix):
+        raise UserError(
+            "Attachment object reference does not match configured bucket."
+        )
+
+    object_key = reference[len(expected_prefix):]
+    if not _OBJECT_KEY_RE.fullmatch(object_key):
+        raise UserError("Invalid secure attachment object reference.")
+
+    return object_key
+
+
 def _read_exact(stream, size):
     """Read exactly size bytes, tolerating short reads from the stream."""
     result = bytearray()

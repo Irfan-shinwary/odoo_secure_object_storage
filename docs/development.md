@@ -51,7 +51,6 @@ ODOO_SECURE_MINIO_ACCESS_KEY=<development-access-key>
 ODOO_SECURE_MINIO_SECRET_KEY=<development-secret-key>
 ODOO_SECURE_MINIO_BUCKET=odoo-secure-documents
 ODOO_SECURE_MINIO_TLS=false
-ODOO_SECURE_STORAGE_MASTER_KEY=<base64-32-byte-development-key>
 ODOO_VAULT_ADDR=http://127.0.0.1:8200
 ODOO_VAULT_TOKEN=<limited-development-token>
 ODOO_VAULT_TRANSIT_KEY=odoo-documents

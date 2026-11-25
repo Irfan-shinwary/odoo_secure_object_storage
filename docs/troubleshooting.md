@@ -12,17 +12,15 @@ Check:
 
 ## Vault Transit errors
 
-Attachment uploads and downloads require Odoo to reach Vault Transit. Confirm that Vault is initialized and unsealed, the configured Transit mount and key exist, and the Odoo application token has `update` capability on the key's `encrypt` and `decrypt` endpoints. Do not use the Vault root token as the Odoo application token.
+Both Odoo attachment storage and the `secure.document` workflow require Odoo to reach Vault Transit. Confirm:
+- Vault is running, initialized and unsealed.
+- `ODOO_VAULT_ADDR` is reachable from Odoo.
+- Transit is enabled at the configured mount.
+- The key name matches `ODOO_VAULT_TRANSIT_KEY`.
+- The Odoo application token has `update` capability on the key's `encrypt` and `decrypt` endpoints.
+- TLS trust and `ODOO_VAULT_CA_BUNDLE` are correct when using a private CA.
 
-## Vault Transit errors
-
-For the `secure.document` workflow:
-- Confirm Vault is running and unsealed.
-- Confirm `ODOO_VAULT_ADDR` is reachable from Odoo.
-- Confirm Transit is enabled at the configured mount.
-- Confirm the key name matches `ODOO_VAULT_TRANSIT_KEY`.
-- Confirm the application token has `update` capability on the encrypt and decrypt endpoints.
-- Confirm TLS trust and `ODOO_VAULT_CA_BUNDLE` when using a private CA.
+Do not use the Vault root token as the Odoo application token. The integration logs performance/error metadata; never log or paste actual tokens or key material into support tickets.
 
 The Odoo Transit integration logs performance/error metadata. Never log or paste actual tokens, unseal keys or key material into support tickets.
 

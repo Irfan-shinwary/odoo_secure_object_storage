@@ -7,9 +7,7 @@
 - MinIO endpoint reachable from the Odoo host.
 - A private bucket already created in MinIO.
 - Python packages `minio`, `cryptography` and `requests` installed in Odoo's Python environment.
-- A stable Base64-encoded 32-byte attachment master key.
-
-Vault is required for the separate `secure.document` Transit workflow. The current `ir.attachment` encryption implementation uses the master key described in [Architecture](architecture.md).
+- A reachable Vault server with Transit enabled, a Transit key created, and a limited Odoo application token.
 
 ## 2. Install the addon source
 
@@ -46,7 +44,7 @@ python -m pip show minio cryptography requests
 
 ## 4. Configure the Odoo process
 
-Set the variables in [Configuration](configuration.md). At minimum, attachment storage requires the MinIO variables, `ODOO_SECURE_STORAGE_ENABLED`, and `ODOO_SECURE_STORAGE_MASTER_KEY`.
+Set the variables in [Configuration](configuration.md). At minimum, attachment storage requires the MinIO variables, `ODOO_SECURE_STORAGE_ENABLED`, and the Vault Transit variables.
 
 Restart Odoo after changing environment variables. Odoo reads process environment at runtime; changing a file does not update an already running process.
 

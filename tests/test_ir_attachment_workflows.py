@@ -233,6 +233,11 @@ class TestSecureAttachmentWorkflows(TransactionCase):
             "datas": base64.b64encode(content),
         })
 
+    def _read_attachment_content(self, attachment):
+        """Invalidate ORM cache so assertions exercise MinIO decryption."""
+        attachment.invalidate_recordset(["datas"])
+        return base64.b64decode(attachment.datas)
+
     def test_create_and_read_attachment(self):
         original = b"Secure attachment integration test."
 
@@ -268,7 +273,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         # Verify that the actual decryption pipeline returns
         # the original attachment content.
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             original,
         )
 
@@ -311,7 +316,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         })
 
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             replacement,
         )
 
@@ -331,7 +336,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
         )
 
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             b"",
         )
 
@@ -373,7 +378,7 @@ class TestSecureAttachmentWorkflows(TransactionCase):
 
         # Confirm complete multi-chunk decryption.
         self.assertEqual(
-            base64.b64decode(attachment.datas),
+            self._read_attachment_content(attachment),
             original,
         )
 

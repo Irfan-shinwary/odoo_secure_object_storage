@@ -61,18 +61,19 @@ Copy .env.example to .env and replace all placeholders. Docker Compose reads .en
 
 ## Documentation
 
-- Architecture and key handling: docs/architecture.md
-- Installation: docs/installation.md
-- Configuration reference: docs/configuration.md
-- Vault Transit setup: docs/vault-setup.md
-- MinIO setup: docs/minio-setup.md
-- PyCharm development: docs/development.md
-- Automated testing and migration: docs/testing.md
-- Production deployment considerations: docs/production-deployment.md
-- Security operations: docs/security.md
-- Backup and recovery: docs/backup-recovery.md
-- Troubleshooting: docs/troubleshooting.md
-- Security review: docs/security-review.md
+- [Architecture and key handling](docs/architecture.md)
+- [Installation](docs/installation.md)
+- [Configuration reference](docs/configuration.md)
+- [Vault Transit setup](docs/vault-setup.md)
+- [MinIO setup](docs/minio-setup.md)
+- [PyCharm development](docs/development.md)
+- [Automated testing and migration](docs/testing.md)
+- [Production deployment considerations](docs/production-deployment.md)
+- [Security operations](docs/security.md)
+- [Backup and recovery](docs/backup-recovery.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Security review](docs/security-review.md)
+- [Changelog](CHANGELOG.md)
 
 ## Important operational rules
 

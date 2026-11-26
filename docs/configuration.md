@@ -1,6 +1,6 @@
 # Configuration reference
 
-All variables must be present in the **environment of the Odoo server process**. A Docker Compose `.env` file only supplies variables to Compose interpolation and the containers explicitly configured to receive them; it does not automatically configure a separately launched Odoo process.
+All variables must be present in the **environment of the Odoo server process**. A Docker Compose `.env` file supplies variables to Compose and containers explicitly configured to receive them; it does not automatically configure a separately launched Odoo process.
 
 | Variable | Required | Purpose |
 |---|---:|---|
@@ -8,26 +8,19 @@ All variables must be present in the **environment of the Odoo server process**.
 | `ODOO_SECURE_MINIO_ENDPOINT` | Yes | MinIO host:port, without URL scheme |
 | `ODOO_SECURE_MINIO_ACCESS_KEY` | Yes | MinIO access key |
 | `ODOO_SECURE_MINIO_SECRET_KEY` | Yes | MinIO secret key |
-| `ODOO_SECURE_MINIO_BUCKET` | Yes | Existing bucket name |
-| `ODOO_SECURE_MINIO_TLS` | Yes | `true` for HTTPS, `false` for HTTP |
-| `ODOO_SECURE_STORAGE_MASTER_KEY` | Yes for encrypted attachment reads/writes | Base64 string decoding to exactly 32 bytes |
-| `ODOO_VAULT_ADDR` | Yes for Vault-backed secure documents | Vault URL, e.g. `https://vault.example.internal:8200` |
-| `ODOO_VAULT_TOKEN` | Yes for Vault-backed secure documents | Limited token with Transit encrypt/decrypt permissions |
-| `ODOO_VAULT_TRANSIT_KEY` | Yes for Vault-backed secure documents | Transit key name; default in code is `odoo-documents` |
-| `ODOO_VAULT_TRANSIT_MOUNT` | Yes for Vault-backed secure documents | Transit mount; default in code is `transit` |
+| `ODOO_SECURE_MINIO_BUCKET` | Yes | Existing private bucket name |
+| `ODOO_SECURE_MINIO_TLS` | Yes | `true` for HTTPS, `false` for local HTTP development |
+| `ODOO_VAULT_ADDR` | Yes | Vault URL, e.g. `https://vault.example.internal:8200` |
+| `ODOO_VAULT_TOKEN` | Yes | Limited token with Transit encrypt/decrypt permissions |
+| `ODOO_VAULT_TRANSIT_KEY` | Yes | Transit key name; default is `odoo-documents` |
+| `ODOO_VAULT_TRANSIT_MOUNT` | Yes | Transit mount; default is `transit` |
 | `ODOO_VAULT_CA_BUNDLE` | Optional | Path to CA bundle used to verify Vault TLS |
 
-## Generate the attachment master key
+## Encryption and key management
 
-Generate 32 cryptographically random bytes and Base64-encode them. Example using Python:
+Odoo attachments use a randomly generated 32-byte Data Encryption Key (DEK) per object. Vault Transit wraps the DEK; AES-256-GCM encrypts the attachment in authenticated chunks. The wrapped DEK is stored as MinIO object metadata. The application does not require a static attachment master-key environment variable.
 
-```python
-import base64
-import secrets
-print(base64.b64encode(secrets.token_bytes(32)).decode("ascii"))
-```
-
-Run this once per environment. Store the result in a secret manager and secure offline backup. Do not regenerate it on every restart or deployment. Do not use the same value across development, test and production.
+Keep Vault's persistent data and Transit key material backed up. Losing the Transit key material can make objects encrypted under its wrapped DEKs unreadable. Losing an Odoo application token is recoverable by issuing a replacement limited token while preserving the Transit key.
 
 ## Boolean values
 
@@ -35,4 +28,4 @@ Use explicit values such as `1` or `0`. For MinIO TLS, set `false` only for loca
 
 ## Environment separation
 
-Maintain separate credentials, buckets, master keys, Vault Transit keys/tokens and persistent volumes for development, test/staging and production. Never copy production secrets into developer workstations.
+Maintain separate MinIO credentials, buckets, Vault Transit keys/tokens and persistent volumes for development, test/staging and production. Never copy production secrets into developer workstations.

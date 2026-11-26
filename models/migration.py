@@ -97,7 +97,7 @@ class SecureStorageMigration(models.Model):
 
     _sql_constraints = [
         (
-            "secure_storage_migration_attachment_unique",
+            "attachment_unique",
             "unique(attachment_id)",
             "An attachment can only have one migration tracking record.",
         ),

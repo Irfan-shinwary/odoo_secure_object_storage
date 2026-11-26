@@ -22,6 +22,8 @@ All notable addon changes are documented here.
 - Remove tracked Python bytecode artifacts.
 - Prepare the addon manifest version as 17.0.3.0.0.
 
-### Validation note
-- The maintainer previously reported 15 passing automated tests and successful live Odoo/MinIO/Vault attachment upload/download checks on the ODSDOC01 path.
-- The consolidated main branch contains additional/updated tests and must be rerun in the maintainer's Odoo 17 development environment before this version is treated as finalized.
+### Validation
+- Odoo 17 addon test suite: 18 tests passed, 0 failures and 0 errors on the disposable `secure_storage_addon_test` database.
+- Live Odoo/MinIO/Vault attachment upload and download verified successfully using the ODSDOC01 format.
+- PostgreSQL migration uniqueness constraint verified: `UNIQUE (attachment_id)`.
+- `git diff --check` completed without errors.

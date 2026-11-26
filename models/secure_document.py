@@ -91,24 +91,6 @@ class SecureDocument(models.Model):
             # Bypass the public unlink guard only after authorization.
             super(SecureDocument, document).unlink()
 
-    # def action_delete_document(self):
-    #     for document in self:
-    #         document._check_document_access("unlink")
-    #         if document.state == "ready" and document.object_name:
-    #             object_name = document.object_name
-    #
-    #             def delete_after_commit(name=object_name):
-    #                 try:
-    #                     object_storage.remove_object(name)
-    #                 except Exception:
-    #                     _logger.exception(
-    #                         "Failed to remove secure object %s", name
-    #                     )
-    #
-    #             self.env.cr.postcommit.add(delete_after_commit)
-    #
-    #     self.unlink()
-
     def unlink(self):
         for document in self:
             document._check_document_access("unlink")
@@ -167,15 +149,6 @@ class SecureDocument(models.Model):
                 "wrapped_key": wrapped_key,
                 "state": "ready",
             })
-            # self.write({
-            #     "name": name,
-            #     "mimetype": mimetype or "application/octet-stream",
-            #     "plaintext_size": size,
-            #     "sha256": checksum,
-            #     "object_name": object_name,
-            #     "wrapped_key": wrapped_key,
-            #     "state": "ready",
-            # })
 
             self.env["secure.document.audit"].sudo().create({
                 "document_id": self.id,
@@ -196,72 +169,6 @@ class SecureDocument(models.Model):
             raise
 
         return self
-
-    # def _stream_upload(self, source, name, mimetype):
-    #     """Store a seekable input stream; only bounded chunks are encrypted."""
-    #     self.ensure_one()
-    #     self._check_document_access("write")
-    #
-    #     source.seek(0, 2)
-    #     size = source.tell()
-    #     source.seek(0)
-    #
-    #     if size < 0:
-    #         raise UserError(_("Invalid document size."))
-    #
-    #     digest = hashlib.sha256()
-    #     while True:
-    #         chunk = source.read(streaming_encryption.CHUNK_SIZE)
-    #         if not chunk:
-    #             break
-    #         digest.update(chunk)
-    #
-    #     checksum = digest.hexdigest()
-    #     source.seek(0)
-    #
-    #     data_key = key_provider.generate_data_key()[0]
-    #     wrapped_key = key_provider.wrap_data_key(data_key)
-    #
-    #     encrypted = streaming_encryption.encrypt_stream(
-    #         source=source,
-    #         key=data_key,
-    #         document_id=str(self.id),
-    #         plaintext_size=size,
-    #         plaintext_sha256=checksum,
-    #     )
-    #
-    #     object_name = object_storage.put_encrypted_stream(
-    #         stream=object_storage.IteratorReader(encrypted),
-    #         plaintext_size=size,
-    #         chunk_size=streaming_encryption.CHUNK_SIZE,
-    #     )
-    #
-    #     try:
-    #         self.write({
-    #             "name": name,
-    #             "mimetype": mimetype or "application/octet-stream",
-    #             "plaintext_size": size,
-    #             "sha256": checksum,
-    #             "object_name": object_name,
-    #             "wrapped_key": wrapped_key,
-    #             "state": "ready",
-    #         })
-    #     except Exception:
-    #         # The DB transaction may fail after object upload.
-    #         try:
-    #             object_storage.remove_object(object_name)
-    #         except Exception:
-    #             _logger.exception("Orphaned secure object requires cleanup")
-    #         raise
-    #
-    #     self.env["secure.document.audit"].sudo().create({
-    #         "document_id": self.id,
-    #         "event": "upload",
-    #         "user_id": self.env.user.id,
-    #         "success": True,
-    #         "details": "Encrypted document uploaded",
-    #     })
-    #     return self
 
     def _iter_download(self):
         self.ensure_one()
@@ -334,50 +241,3 @@ class SecureDocument(models.Model):
             )
 
         return super().write(vals)
-
-    # def _iter_download(self):
-    #     self.ensure_one()
-    #     self._check_document_access("read")
-    #
-    #     if self.state != "ready" or not self.object_name or not self.wrapped_key:
-    #         raise UserError("The document is not available.")
-    #
-    #     response = object_storage.get_object(self.object_name)
-    #     try:
-    #         data_key = key_provider.unwrap_data_key(self.wrapped_key)
-    #     except Exception:
-    #         response.close()
-    #         response.release_conn()
-    #         raise
-    #
-    #     self.env["secure.document.audit"].sudo().create({
-    #         "document_id": self.id,
-    #         "event": "download",
-    #         "user_id": self.env.user.id,
-    #         "success": True,
-    #         "details": "Download authorized and encrypted stream opened",
-    #     })
-    #
-    #     expected_size = self.plaintext_size
-    #     expected_sha256 = self.sha256
-    #     document_id = str(self.id)
-    #
-    #     def generate():
-    #         try:
-    #             yield from streaming_encryption.decrypt_stream(
-    #                 source=response,
-    #                 key=data_key,
-    #                 document_id=document_id,
-    #                 expected_size=expected_size,
-    #                 expected_sha256=expected_sha256,
-    #             )
-    #         except Exception:
-    #             _logger.exception(
-    #                 "Secure document stream integrity failure: %s", document_id
-    #             )
-    #             raise
-    #         finally:
-    #             response.close()
-    #             response.release_conn()
-    #
-    #     return generate()

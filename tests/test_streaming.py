@@ -2,7 +2,7 @@
 import hashlib
 import io
 import os
-import unittest
+from odoo.tests.common import TransactionCase
 
 from ..services.streaming_encryption import (
     SecureStreamError,
@@ -23,7 +23,7 @@ def encrypted_bytes(data, key, document_id):
     return b"".join(stream), digest
 
 
-class TestStreamingEncryption(unittest.TestCase):
+class TestStreamingEncryption(TransactionCase):
 
     def test_round_trip(self):
         data = os.urandom(9 * 1024 * 1024 + 137)

@@ -522,6 +522,47 @@ class TestSecureAttachmentWorkflows(TransactionCase):
                 _ = attachment.datas
 
 
+    def test_secure_object_is_cleaned_up_on_transaction_rollback(self):
+        original = b"Testing secure object rollback cleanup."
+
+        postrollback = self.env.cr.postrollback
+        callbacks_class = type(postrollback)
+
+        with patch.object(
+                callbacks_class,
+                "add",
+                autospec=True,
+        ) as mock_add:
+            attachment = self._create_attachment(
+                original,
+                "rollback-cleanup-test.txt",
+            )
+
+        mock_add.assert_called_once()
+        registered_callback = mock_add.call_args[0][1]
+
+        self.assertTrue(callable(registered_callback))
+
+        object_key = attachment.store_fname.rsplit("/", 1)[-1]
+        self.assertIn(
+            object_key,
+            self.fake_minio.objects,
+            "The uploaded object should exist before rollback cleanup.",
+        )
+
+        registered_callback()
+
+        self.assertNotIn(
+            object_key,
+            self.fake_minio.objects,
+            "The uploaded object was not removed by rollback cleanup.",
+        )
+        self.assertNotIn(
+            object_key,
+            self.fake_minio.metadata,
+            "Object metadata was not removed by rollback cleanup.",
+        )
+
     def test_secure_object_is_deleted_after_commit(self):
         original = b"Testing secure object deletion after database commit."
 

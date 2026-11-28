@@ -146,7 +146,7 @@ class TestSecureAttachmentHTTP(HttpCase):
         self.authenticate("admin", "admin")
 
     def test_native_http_upload_uses_secure_streaming_storage(self):
-        payload = (b"secure-http-upload-" * 8192) + b"end"
+        payload = (b"secure-http-upload-" * 275252) + b"end"
         partner = self.env.user.partner_id
 
         response = self.url_open(
@@ -184,7 +184,7 @@ class TestSecureAttachmentHTTP(HttpCase):
         )
 
     def test_native_http_download_returns_verified_content_and_closes_minio(self):
-        payload = (b"secure-http-download-" * 4096) + b"end"
+        payload = (b"secure-http-download-" * 275252) + b"end"
         attachment = self.env["ir.attachment"]._create_secure_attachment_from_stream(
             filename="http-streamed-download.bin",
             source=io.BytesIO(payload),

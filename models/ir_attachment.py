@@ -13,7 +13,6 @@ from odoo import api, models
 from odoo.exceptions import UserError
 from odoo.tools import human_size
 from odoo.tools.mimetypes import guess_mimetype
-from odoo.addons.base.models.ir_attachment import IrAttachment as BaseIrAttachment
 
 from ..services import key_provider, object_storage, streaming_encryption
 
@@ -355,7 +354,7 @@ class IrAttachment(models.Model):
             # Bypass ir.attachment.write's deliberate removal of computed
             # storage fields. This is the same internal pattern Odoo uses
             # in _set_attachment_data() when calling super(Base, record).
-            super(BaseIrAttachment, attachment.sudo()).write(
+            super(IrAttachment, attachment.sudo()).write(
                 internal_values
             )
             attachment.invalidate_recordset([

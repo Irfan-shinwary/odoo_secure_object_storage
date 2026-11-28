@@ -5,7 +5,7 @@ import os
 from unittest.mock import patch
 
 from odoo import http
-from odoo.tests import HttpCase, tagged
+from odoo.tests import HttpCase, tagged, new_test_user
 
 from odoo.addons.odoo_secure_object_storage.services import (
     key_provider,
@@ -181,6 +181,44 @@ class TestSecureAttachmentHTTP(HttpCase):
             payload,
             self.fake_minio.objects[object_key],
             "Plaintext must not be stored in the MinIO object.",
+        )
+
+    def test_http_upload_preserves_attachment_target_access_checks(self):
+        uploader = new_test_user(
+            self.env,
+            login="secure_http_uploader",
+            groups="base.group_user",
+        )
+        protected_user = self.env.ref("base.user_admin")
+        self.authenticate(uploader.login, "secure_http_uploader")
+
+        response = self.url_open(
+            "/web/binary/upload_attachment",
+            data={
+                "csrf_token": http.Request.csrf_token(self),
+                "model": "res.users",
+                "id": str(protected_user.id),
+            },
+            files={
+                "ufile": (
+                    "unauthorized-upload.txt",
+                    b"must not be attached",
+                    "text/plain",
+                ),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        self.assertEqual(len(result), 1)
+        self.assertIn("error", result[0])
+        self.assertFalse(
+            self.env["ir.attachment"].sudo().search([
+                ("name", "=", "unauthorized-upload.txt"),
+                ("res_model", "=", "res.users"),
+                ("res_id", "=", protected_user.id),
+            ]),
+            "A denied upload must not leave an attachment record.",
         )
 
     def test_native_http_download_returns_verified_content_and_closes_minio(self):

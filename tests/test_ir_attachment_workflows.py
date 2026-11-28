@@ -627,3 +627,71 @@ class TestSecureAttachmentWorkflows(TransactionCase):
             self.fake_minio.metadata,
             "The secure object metadata was not deleted.",
         )
+
+    def test_streamed_upload_uses_bounded_reads_and_round_trips(self):
+        """The streaming entry point must not request the whole file at once."""
+        payload = os.urandom(5 * 1024 * 1024 + 321)
+
+        class TrackingStream(io.BytesIO):
+            def __init__(self, value):
+                super().__init__(value)
+                self.max_requested = 0
+
+            def read(self, size=-1):
+                if size is not None and size >= 0:
+                    self.max_requested = max(self.max_requested, size)
+                else:
+                    self.max_requested = float("inf")
+                return super().read(size)
+
+        source = TrackingStream(payload)
+
+        attachment = self.env["ir.attachment"]._create_secure_attachment_from_stream(
+            filename="streamed-large.bin",
+            source=source,
+            mimetype="application/octet-stream",
+        )
+
+        self.assertTrue(attachment.store_fname.startswith("secure-minio://"))
+        self.assertEqual(attachment.file_size, len(payload))
+        self.assertLessEqual(
+            source.max_requested,
+            streaming_encryption.CHUNK_SIZE,
+            "Upload path requested an unbounded read from the source stream.",
+        )
+        self.assertEqual(self._read_attachment_content(attachment), payload)
+
+    def test_streamed_upload_empty_file_keeps_native_empty_storage_behavior(self):
+        source = io.BytesIO(b"")
+
+        attachment = self.env["ir.attachment"]._create_secure_attachment_from_stream(
+            filename="streamed-empty.bin",
+            source=source,
+            mimetype="application/octet-stream",
+        )
+
+        self.assertFalse(attachment.store_fname)
+        self.assertEqual(attachment.file_size, 0)
+        self.assertEqual(len(self.fake_minio.objects), 0)
+
+    def test_streamed_upload_registers_rollback_cleanup(self):
+        source = io.BytesIO(b"streamed rollback payload")
+
+        postrollback = self.env.cr.postrollback
+        callbacks_class = type(postrollback)
+
+        with patch.object(callbacks_class, "add", autospec=True) as mock_add:
+            attachment = self.env["ir.attachment"]._create_secure_attachment_from_stream(
+                filename="streamed-rollback.txt",
+                source=source,
+                mimetype="application/octet-stream",
+            )
+
+        mock_add.assert_called_once()
+        callback = mock_add.call_args[0][1]
+        object_key = attachment.store_fname.rsplit("/", 1)[-1]
+
+        self.assertIn(object_key, self.fake_minio.objects)
+        callback()
+        self.assertNotIn(object_key, self.fake_minio.objects)
+        self.assertNotIn(object_key, self.fake_minio.metadata)

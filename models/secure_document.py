@@ -168,6 +168,20 @@ class SecureDocument(models.Model):
                 )
             raise
 
+        # The MinIO object is outside PostgreSQL's transaction. If the
+        # metadata/audit transaction is rolled back later, remove the object
+        # so a failed upload cannot leave an orphaned encrypted document.
+        def cleanup_after_rollback(name=object_name):
+            try:
+                object_storage.remove_object(name)
+            except Exception:
+                _logger.exception(
+                    "Could not clean up rolled-back secure document object %s",
+                    name,
+                )
+
+        self.env.cr.postrollback.add(cleanup_after_rollback)
+
         return self
 
     def _iter_download(self):

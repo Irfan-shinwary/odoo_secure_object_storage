@@ -627,3 +627,102 @@ class TestSecureAttachmentWorkflows(TransactionCase):
             self.fake_minio.metadata,
             "The secure object metadata was not deleted.",
         )
+
+    def test_vault_wrap_failure_does_not_create_an_object(self):
+        """A Vault outage before upload must fail closed without MinIO writes."""
+        with patch.object(
+            key_provider,
+            "wrap_data_key",
+            side_effect=ConnectionError("Vault is unavailable."),
+        ):
+            with self.assertRaises(ConnectionError):
+                self._create_attachment(
+                    b"payload must not be stored without a wrapped DEK",
+                    "vault-wrap-failure.txt",
+                )
+
+        self.assertFalse(
+            self.fake_minio.objects,
+            "MinIO must not receive an object when DEK wrapping fails.",
+        )
+
+    def test_partial_minio_upload_is_cleaned_up_after_failure(self):
+        """A failed upload must remove any object that may have been created."""
+        def fail_after_partial_write(
+            stream,
+            plaintext_size,
+            chunk_size,
+            object_name=None,
+            metadata=None,
+        ):
+            self.fake_minio.objects[object_name] = b"partial-ciphertext"
+            self.fake_minio.metadata[object_name] = dict(metadata or {})
+            raise ConnectionError("Simulated MinIO connection interruption.")
+
+        with patch.object(
+            object_storage,
+            "put_encrypted_stream",
+            side_effect=fail_after_partial_write,
+        ):
+            with self.assertRaises(ConnectionError):
+                self._create_attachment(
+                    b"payload for interrupted upload",
+                    "partial-upload-failure.txt",
+                )
+
+        self.assertFalse(
+            self.fake_minio.objects,
+            "A partial encrypted object was left behind after upload failure.",
+        )
+        self.assertFalse(
+            self.fake_minio.metadata,
+            "Metadata for a partial encrypted object was left behind.",
+        )
+
+    def test_minio_service_recovery_restores_attachment_reads(self):
+        """An outage must fail closed, and reads must work after recovery."""
+        original = b"Attachment must remain readable after MinIO recovery."
+        attachment = self._create_attachment(
+            original,
+            "minio-recovery.txt",
+        )
+
+        with patch.object(
+            object_storage,
+            "get_object",
+            side_effect=ConnectionError("Simulated MinIO outage."),
+        ):
+            attachment.invalidate_recordset(["datas"])
+            with self.assertRaises(UserError):
+                _ = attachment.datas
+
+        attachment.invalidate_recordset(["datas"])
+        self.assertEqual(
+            self._read_attachment_content(attachment),
+            original,
+            "Attachment did not become readable after MinIO recovered.",
+        )
+
+    def test_vault_service_recovery_restores_attachment_reads(self):
+        """A sealed/unavailable Vault must fail closed, then recover cleanly."""
+        original = b"Attachment must remain readable after Vault recovery."
+        attachment = self._create_attachment(
+            original,
+            "vault-recovery.txt",
+        )
+
+        with patch.object(
+            key_provider,
+            "unwrap_data_key",
+            side_effect=ConnectionError("Simulated Vault outage or sealed state."),
+        ):
+            attachment.invalidate_recordset(["datas"])
+            with self.assertRaises(UserError):
+                _ = attachment.datas
+
+        attachment.invalidate_recordset(["datas"])
+        self.assertEqual(
+            self._read_attachment_content(attachment),
+            original,
+            "Attachment did not become readable after Vault recovered.",
+        )

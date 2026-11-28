@@ -12,7 +12,6 @@ from minio import Minio
 from odoo import api, models
 from odoo.exceptions import UserError
 from odoo.tools import human_size
-from odoo.tools.mimetypes import guess_mimetype
 
 from ..services import key_provider, object_storage, streaming_encryption
 

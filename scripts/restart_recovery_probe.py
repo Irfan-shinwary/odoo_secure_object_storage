@@ -9,12 +9,11 @@ import base64
 import hashlib
 import json
 import os
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from benchmark_odoo_e2e import OdooClient, build_payload, load_project_env
+from benchmark_odoo_e2e import OdooClient, load_project_env
 
 
 def settings(args):
@@ -97,7 +96,7 @@ def main():
         }
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         manifest_path.write_text(
-            json.dumps(manifest, indent=2) + "\\n", encoding="utf-8"
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
         )
         print("Created secure restart probe.")
         print("Attachment ID: {}".format(attachment_id))

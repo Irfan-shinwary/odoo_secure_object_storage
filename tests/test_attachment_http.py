@@ -254,7 +254,18 @@ class TestSecureAttachmentHTTP(HttpCase):
         )
 
         self.assertEqual(response.status_code, 200, response.text)
-        result = response.json()
+        try:
+            result = response.json()
+        except ValueError:
+            self.fail(
+                "Denied HTTP upload response was not JSON. "
+                "status=%s content_type=%s body=%s"
+                % (
+                    response.status_code,
+                    response.headers.get("Content-Type"),
+                    response.text[:2000],
+                )
+            )
         self.assertEqual(len(result), 1)
         self.assertIn("error", result[0])
         self.assertFalse(

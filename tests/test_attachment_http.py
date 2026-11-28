@@ -1,7 +1,10 @@
 """HTTP-level tests for secure native Odoo attachment upload/download."""
 
+import hashlib
+import hmac
 import io
 import os
+import time
 from unittest.mock import patch
 
 from odoo import http
@@ -145,32 +148,74 @@ class TestSecureAttachmentHTTP(HttpCase):
         super().setUp()
         self.authenticate("admin", "admin")
 
+    def _csrf_token(self):
+        """Generate a CSRF token for the authenticated HttpCase session."""
+        max_ts = int(time.time() + http.CSRF_TOKEN_SALT)
+        secret = self.env["ir.config_parameter"].sudo().get_param(
+            "database.secret"
+        )
+        message = f"{self.session.sid}{max_ts}".encode("utf-8")
+        digest = hmac.new(
+            secret.encode("ascii"),
+            message,
+            hashlib.sha1,
+        ).hexdigest()
+        return f"{digest}o{max_ts}"
+
+    def _upload_attachment_over_http(self, payload, filename):
+        partner_id = self.env.user.partner_id.id
+        response = self.url_open(
+            "/web/binary/upload_attachment",
+            data={
+                "csrf_token": self._csrf_token(),
+                "model": "res.partner",
+                "id": str(partner_id),
+            },
+            files={
+                "ufile": (
+                    filename,
+                    payload,
+                    "application/octet-stream",
+                ),
+            },
+        )
+        self.assertEqual(
+            response.status_code,
+            200,
+            "HTTP upload did not return success: %s" % response.text[:2000],
+        )
+        self.assertTrue(
+            response.headers.get("Content-Type", "").startswith(
+                ("application/json", "text/html")
+            ),
+            "Unexpected HTTP upload response: %s" % response.headers,
+        )
+        try:
+            result = response.json()
+        except ValueError:
+            self.fail(
+                "HTTP upload response was not JSON. "
+                "status=%s content_type=%s body=%s"
+                % (
+                    response.status_code,
+                    response.headers.get("Content-Type"),
+                    response.text[:2000],
+                )
+            )
+        self.assertEqual(len(result), 1, result)
+        self.assertNotIn("error", result[0], result[0])
+        return result[0]["id"]
+
     def test_native_http_upload_uses_secure_streaming_storage(self):
         payload = (b"secure-http-upload-" * 275252) + b"end"
         partner = self.env.user.partner_id
 
-        response = self.url_open(
-            "/web/binary/upload_attachment",
-            data={
-                "csrf_token": http.Request.csrf_token(self),
-                "model": "res.partner",
-                "id": str(partner.id),
-            },
-            files={
-                "ufile": (
-                    "http-streamed-upload.txt",
-                    payload,
-                    "text/plain",
-                ),
-            },
+        attachment_id = self._upload_attachment_over_http(
+            payload,
+            "http-streamed-upload.txt",
         )
 
-        self.assertEqual(response.status_code, 200, response.text)
-        result = response.json()
-        self.assertEqual(len(result), 1)
-        self.assertNotIn("error", result[0], result[0])
-
-        attachment = self.env["ir.attachment"].sudo().browse(result[0]["id"])
+        attachment = self.env["ir.attachment"].sudo().browse(attachment_id)
         self.assertTrue(attachment.exists())
         self.assertEqual(attachment.file_size, len(payload))
         self.assertTrue(attachment.store_fname.startswith("secure-minio://"))
@@ -195,7 +240,7 @@ class TestSecureAttachmentHTTP(HttpCase):
         response = self.url_open(
             "/web/binary/upload_attachment",
             data={
-                "csrf_token": http.Request.csrf_token(self),
+                "csrf_token": self._csrf_token(),
                 "model": "res.users",
                 "id": str(protected_user.id),
             },
@@ -223,11 +268,12 @@ class TestSecureAttachmentHTTP(HttpCase):
 
     def test_native_http_download_returns_verified_content_and_closes_minio(self):
         payload = (b"secure-http-download-" * 275252) + b"end"
-        attachment = self.env["ir.attachment"]._create_secure_attachment_from_stream(
-            filename="http-streamed-download.bin",
-            source=io.BytesIO(payload),
-            mimetype="application/octet-stream",
+        attachment_id = self._upload_attachment_over_http(
+            payload,
+            "http-streamed-download.bin",
         )
+        attachment = self.env["ir.attachment"].sudo().browse(attachment_id)
+        self.assertTrue(attachment.exists())
         self.assertTrue(attachment.store_fname.startswith("secure-minio://"))
 
         created_paths = []

@@ -24,6 +24,43 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 
 
+def load_project_env():
+    """Load simple KEY=VALUE entries from the Odoo project-root .env.
+
+    Existing process environment variables take precedence. This deliberately
+    supports plain dotenv assignments only; it does not execute shell syntax,
+    expand variables, or print secret values.
+    """
+    configured = os.getenv("ODOO_BENCH_ENV_FILE")
+    if configured:
+        env_path = Path(configured).expanduser()
+    else:
+        # scripts/ -> addon -> server_custom -> Odoo-17 project root
+        env_path = Path(__file__).resolve().parents[3] / ".env"
+
+    if not env_path.is_file():
+        return None
+
+    for raw_line in env_path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or not key.replace("_", "").isalnum():
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+    return str(env_path)
+
+
 class BenchmarkError(RuntimeError):
     pass
 
@@ -230,6 +267,9 @@ def summarize(rows):
 
 
 def main():
+    env_file = load_project_env()
+    if env_file:
+        print("Loaded benchmark environment from: {}".format(env_file), flush=True)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default=os.getenv("ODOO_BENCH_URL", "http://127.0.0.1:8069"))
     parser.add_argument("--database", default=os.getenv("ODOO_BENCH_DB"))

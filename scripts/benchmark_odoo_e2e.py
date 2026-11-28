@@ -129,7 +129,7 @@ def build_payload(size_bytes, seed):
 
 
 def run_case(base_url, database, username, password, timeout,
-             size_mib, worker_index, run_index):
+             size_mib, concurrency, worker_index, run_index):
     client = OdooClient(base_url, database, username, password, timeout)
     client.login()
 
@@ -214,7 +214,7 @@ def summarize(rows):
                 for row in selected
                 if row.get(operation + "_mib_per_second") is not None
             ]
-            output["{}MiB_{}".format(size, operation)] = {
+            output["{}MiB_c{}_{}".format(size, concurrency, operation)] = {
                 "samples": len(samples),
                 "latency_seconds_p50": statistics.median(samples),
                 "latency_seconds_p95": percentile(samples, 0.95),

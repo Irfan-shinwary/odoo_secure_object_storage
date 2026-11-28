@@ -46,6 +46,7 @@ class SecureAttachmentBinaryController(Binary):
             if request.httprequest.user_agent.browser == "safari":
                 filename = unicodedata.normalize("NFD", filename)
 
+            attachment = Attachment.browse()
             try:
                 if _secure_storage_enabled():
                     attachment = Attachment._create_secure_attachment_from_stream(
@@ -68,10 +69,28 @@ class SecureAttachmentBinaryController(Binary):
                 attachment._post_add_create()
 
             except AccessError:
+                # The HTTP controller catches the exception and may allow the
+                # request transaction to commit. Remove a record created before
+                # a failing post-create callback so no orphan attachment/object
+                # is committed with an error response.
+                if attachment and attachment.exists():
+                    try:
+                        attachment.unlink()
+                    except Exception:
+                        _logger.exception(
+                            "Failed to remove attachment after upload callback failure."
+                        )
                 results.append({
                     "error": _("You are not allowed to upload an attachment here.")
                 })
             except Exception:
+                if attachment and attachment.exists():
+                    try:
+                        attachment.unlink()
+                    except Exception:
+                        _logger.exception(
+                            "Failed to remove attachment after upload callback failure."
+                        )
                 results.append({"error": _("Something horrible happened")})
                 _logger.exception(
                     "Failed to upload attachment %s",

@@ -353,8 +353,14 @@ class IrAttachment(models.Model):
             # Bypass ir.attachment.write's deliberate removal of computed
             # storage fields. This is the same internal pattern Odoo uses
             # in _set_attachment_data() when calling super(Base, record).
-            super(IrAttachment, attachment.sudo()).write(
-                internal_values
+            # Call the generic ORM write implementation directly.
+            # Odoo's native ir.attachment.write() intentionally removes
+            # file_size, checksum and store_fname from incoming values;
+            # those fields are exactly what this internal storage operation
+            # must persist after the encrypted object has been uploaded.
+            models.Model.write(
+                attachment.sudo(),
+                internal_values,
             )
             attachment.invalidate_recordset([
                 "file_size", "checksum", "index_content",

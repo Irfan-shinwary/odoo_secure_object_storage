@@ -145,6 +145,7 @@ def run_case(base_url, database, username, password, timeout,
     attachment_id = None
     result = {
         "size_mib": size_mib,
+        "concurrency": concurrency,
         "worker": worker_index,
         "run": run_index,
         "expected_sha256": expected_sha256,
@@ -205,8 +206,12 @@ def run_case(base_url, database, username, password, timeout,
 
 def summarize(rows):
     output = {}
-    for size in sorted({row["size_mib"] for row in rows}):
-        selected = [row for row in rows if row["size_mib"] == size]
+    cases = sorted({(row["size_mib"], row["concurrency"]) for row in rows})
+    for size, concurrency in cases:
+        selected = [
+            row for row in rows
+            if row["size_mib"] == size and row["concurrency"] == concurrency
+        ]
         for operation in ("upload", "download"):
             samples = [row[operation + "_seconds"] for row in selected]
             throughput = [
@@ -268,17 +273,19 @@ def main():
                 for worker in range(concurrency)
             ]
             started = time.perf_counter()
+            case_successes = 0
             with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as pool:
                 futures = [
                     pool.submit(
                         run_case, args.url, args.database, args.username,
-                        args.password, args.timeout, case_size, worker, iteration
+                        args.password, args.timeout, case_size, concurrency, worker, iteration
                     )
                     for case_size, worker, iteration in jobs
                 ]
                 for future in concurrent.futures.as_completed(futures):
                     try:
                         rows.append(future.result())
+                        case_successes += 1
                     except Exception as exc:
                         failures.append({
                             "size_mib": size,
@@ -289,7 +296,7 @@ def main():
             print(
                 "size={}MiB concurrency={} completed={} failed={} wall={:.2f}s".format(
                     size, concurrency,
-                    sum(1 for row in rows if row["size_mib"] == size),
+                    case_successes,
                     len(failures), elapsed
                 ),
                 flush=True,

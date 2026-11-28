@@ -88,8 +88,11 @@ class TestSecureDocument(TransactionCase):
                 "text/plain",
             )
 
-        register_rollback.assert_called_once()
-        callback = register_rollback.call_args[0][1]
-        self.assertTrue(callable(callback))
-        callback()
-        remove_object.assert_called_once_with("rollback-object")
+            register_rollback.assert_called_once()
+            callback = register_rollback.call_args[0][1]
+            self.assertTrue(callable(callback))
+
+            # Execute the callback while remove_object is still mocked.
+            # This simulates PostgreSQL invoking postrollback handlers.
+            callback()
+            remove_object.assert_called_once_with("rollback-object")

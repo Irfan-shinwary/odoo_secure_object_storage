@@ -172,7 +172,7 @@ class TestSecureAttachmentHTTP(HttpCase):
         response from the route under test.
         """
         self.opener.cookies.clear(name="session_id")
-        headers = {"Cookie": "session_id=%s" % self.session.sid}
+        headers = {"Cookie": "session_id=%s; test_request_key=%s" % (self.session.sid, self.http_request_key)}
         response = self.url_open(
             url,
             data=data,

@@ -211,14 +211,18 @@ class IrAttachment(models.Model):
                 )
 
             except Exception:
-                if uploaded:
-                    try:
-                        object_storage.remove_object(object_key)
-                    except Exception:
-                        _logger.exception(
-                            "Failed to clean up failed Vault attachment object %s",
-                            object_key,
-                        )
+                # The object key is freshly generated for this write, so it is
+                # safe to attempt deletion even when put_encrypted_stream()
+                # failed before returning. A failed multipart upload or a
+                # network interruption may leave an object despite the caller
+                # not receiving a successful return value.
+                try:
+                    object_storage.remove_object(object_key)
+                except Exception:
+                    _logger.exception(
+                        "Failed to clean up possibly partial Vault attachment object %s",
+                        object_key,
+                    )
 
                 raise
 

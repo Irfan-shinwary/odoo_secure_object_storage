@@ -60,3 +60,8 @@ Test concurrency levels 1, 5 and 10 initially, then increase only within the sta
 ## Acceptance record
 
 Keep the JSON benchmark report with the exact addon commit, host specifications, Odoo/Python/cryptography/MinIO versions, chunk size, test date, file sizes, iterations and integrity results. A benchmark is invalid if any integrity check fails. Establish throughput and latency thresholds with the infrastructure team before claiming acceptance.
+
+
+## Full Odoo integration benchmark
+
+For the real Odoo attachment create/read/delete path with Vault, MinIO and PostgreSQL, see [End-to-end Odoo attachment benchmark](end-to-end-performance.md) and run scripts/benchmark_odoo_e2e.py. The local crypto-only benchmark above remains a separate measurement and must not be presented as end-to-end capacity evidence.

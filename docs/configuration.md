@@ -18,6 +18,7 @@ The attachment storage backend is opt-in. Set `ODOO_SECURE_STORAGE_ENABLED=1` to
 | `ODOO_VAULT_TRANSIT_MOUNT` | Optional | `transit` | Vault Transit secrets-engine mount |
 | `ODOO_VAULT_CA_BUNDLE` | Optional | System CA verification | Path to a CA bundle used to verify Vault TLS |
 | `ODOO_SECURE_STORAGE_ORPHAN_GRACE_HOURS` | Optional | `24` | Minimum age, in hours, before an unreferenced encrypted object can be considered for orphan cleanup. The implementation enforces a minimum of 24 hours. |
+| `ODOO_SECURE_STORAGE_MAX_INDEX_BYTES` | Optional | `1048576` | Maximum plaintext bytes scanned for Odoo's text attachment search index during streamed uploads. Set to `0` to disable text indexing content. |
 
 ## Encryption and key management
 
@@ -38,3 +39,14 @@ Use explicit boolean values such as `1` or `0`. For MinIO TLS, the default is `t
 ## Environment separation
 
 Maintain separate MinIO credentials, buckets, Vault Transit keys/tokens and persistent volumes for development, test/staging and production. Never copy production secrets into developer workstations.
+
+
+## Streaming attachment uploads
+
+When secure storage is enabled, the native `/web/binary/upload_attachment` route uses a disk-backed upload stream for ordinary non-image attachments. The stream is read in bounded 4 MiB passes to calculate Odoo's SHA-1 checksum and the ODSDOC01 SHA-256 digest, build a bounded text search index, and encrypt/upload the object without assembling the complete attachment in process memory.
+
+Odoo's configured image autoresizing pipeline still requires a complete image byte string. Images whose MIME subtype is listed in `base.image_autoresize_extensions` are therefore sent through Odoo's existing image-processing path. This preserves image resizing behavior but does not provide bounded-memory upload for those configured image formats. Other image formats that are not configured for autoresizing use the streaming path.
+
+The text search index is limited by `ODOO_SECURE_STORAGE_MAX_INDEX_BYTES` because Odoo persists `index_content` as a PostgreSQL text field. The attachment itself is always hashed and encrypted in full; this limit affects only search-index coverage, not stored document content or integrity verification.
+
+The regular ORM `ir.attachment.create({'raw': ...})`, `datas`, and `raw` APIs remain byte-oriented Odoo interfaces. This streaming optimization applies to the native HTTP upload route and the addon's explicit `_create_secure_attachment_from_stream()` service method; it does not make every third-party ORM upload caller streaming automatically.

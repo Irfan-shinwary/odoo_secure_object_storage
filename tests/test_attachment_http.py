@@ -162,9 +162,46 @@ class TestSecureAttachmentHTTP(HttpCase):
         ).hexdigest()
         return f"{digest}o{max_ts}"
 
+    def _authenticated_url_open(self, url, data=None, files=None):
+        """Open an HTTP route with the exact authenticated test session.
+
+        HttpCase.authenticate() updates the opener cookie jar, but requests'
+        cookie-domain handling can leave a stale/duplicate session cookie when
+        tests authenticate more than one user. Send one explicit session cookie
+        and disable redirects so a login/website page cannot masquerade as the
+        response from the route under test.
+        """
+        self.opener.cookies.clear(name="session_id")
+        headers = {"Cookie": "session_id=%s" % self.session.sid}
+        response = self.url_open(
+            url,
+            data=data,
+            files=files,
+            headers=headers,
+            allow_redirects=False,
+        )
+        self.assertEqual(
+            response.history,
+            [],
+            "The HTTP test unexpectedly followed a redirect: %s -> %s"
+            % (url, response.url),
+        )
+        self.assertEqual(
+            response.url.split("?", 1)[0],
+            self.base_url() + url.split("?", 1)[0],
+            "The request did not reach the requested Odoo route. "
+            "status=%s location=%s body=%s"
+            % (
+                response.status_code,
+                response.headers.get("Location"),
+                response.text[:1000] if response.headers.get("Content-Type", "").startswith("text/") else "",
+            ),
+        )
+        return response
+
     def _upload_attachment_over_http(self, payload, filename):
         partner_id = self.env.user.partner_id.id
-        response = self.url_open(
+        response = self._authenticated_url_open(
             "/web/binary/upload_attachment",
             data={
                 "csrf_token": self._csrf_token(),
@@ -237,7 +274,7 @@ class TestSecureAttachmentHTTP(HttpCase):
         protected_user = self.env.ref("base.user_admin")
         self.authenticate(uploader.login, "secure_http_uploader")
 
-        response = self.url_open(
+        response = self._authenticated_url_open(
             "/web/binary/upload_attachment",
             data={
                 "csrf_token": self._csrf_token(),
@@ -300,7 +337,7 @@ class TestSecureAttachmentHTTP(HttpCase):
             "decrypt_attachment_to_tempfile",
             side_effect=capture_tempfile,
         ):
-            response = self.url_open(
+            response = self._authenticated_url_open(
                 "/web/content/%s?download=true" % attachment.id,
             )
 

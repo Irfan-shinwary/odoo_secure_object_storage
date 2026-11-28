@@ -226,12 +226,13 @@ class IrAttachment(models.Model):
 
             source.seek(0)
 
-            supplied_mimetype = (mimetype or "").strip().lower()
-            if not supplied_mimetype or supplied_mimetype == "application/octet-stream":
-                supplied_mimetype = guess_mimetype(
-                    head,
-                    default="application/octet-stream",
-                )
+            # Do not trust the multipart Content-Type supplied by the
+            # browser. Match Odoo's native policy: infer from the filename,
+            # then inspect the file header when the extension is unknown.
+            supplied_mimetype = self._compute_mimetype({
+                "name": filename,
+                "raw": head,
+            })
 
             # Keep Odoo's XML/plain-text MIME policy. No binary payload is
             # passed through _check_contents, so it cannot materialize data.

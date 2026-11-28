@@ -59,7 +59,7 @@ class FakeMinio:
         payload = bytearray()
         remaining = length
         while remaining:
-            chunk = data.read(min(64 * 1024, remaining))
+            chunk = data.read(min(10 * 1024 * 1024, remaining))
             if not chunk:
                 raise AssertionError("Encrypted upload ended before its declared length.")
             payload.extend(chunk)

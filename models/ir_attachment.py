@@ -6,11 +6,14 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 import time
+import tempfile
 
 from minio import Minio
 from odoo import api, models
 from odoo.exceptions import UserError
 from odoo.tools import human_size
+from odoo.tools.mimetypes import guess_mimetype
+from odoo.addons.base.models.ir_attachment import IrAttachment as BaseIrAttachment
 
 from ..services import key_provider, object_storage, streaming_encryption
 
@@ -100,6 +103,249 @@ class IrAttachment(models.Model):
     _inherit = "ir.attachment"
 
 
+
+
+    @api.model
+    def _stream_index_content(self, source, mimetype):
+        """Build Odoo-compatible index content without loading the file at once."""
+        if not mimetype:
+            return False
+
+        index_type = mimetype.split("/", 1)[0]
+        if index_type != "text":
+            return index_type
+
+        source.seek(0)
+        pending = b""
+        indexed_runs = []
+
+        while True:
+            chunk = source.read(streaming_encryption.CHUNK_SIZE)
+            if not chunk:
+                break
+
+            data = pending + chunk
+            trailing = re.search(rb"[\x20-\x7E]+$", data)
+
+            if trailing:
+                stable_data = data[:trailing.start()]
+                pending = trailing.group(0)
+            else:
+                stable_data = data
+                pending = b""
+
+            indexed_runs.extend(
+                re.findall(rb"[\x20-\x7E]{4,}", stable_data)
+            )
+
+        if len(pending) >= 4:
+            indexed_runs.append(pending)
+
+        source.seek(0)
+        return b"\n".join(indexed_runs).decode("ascii")
+
+    @api.model
+    def _create_secure_attachment_from_stream(
+        self,
+        filename,
+        source,
+        res_model=False,
+        res_id=0,
+        mimetype=None,
+    ):
+        """Create an Odoo attachment from a seekable stream using bounded memory.
+
+        Odoo's standard create(raw=...) API requires the entire file as bytes.
+        This method creates the normal attachment record first, then stores
+        authenticated encrypted content in MinIO and writes Odoo's internal
+        storage metadata using the base ORM write implementation.
+        """
+        if not _storage_enabled():
+            raise UserError(
+                "Secure attachment streaming is not enabled."
+            )
+
+        if not filename or not hasattr(source, "read"):
+            raise UserError("A valid filename and binary stream are required.")
+
+        temporary_source = None
+        attachment = self.browse()
+        object_key = None
+        uploaded = False
+
+        try:
+            # Werkzeug normally provides a seekable SpooledTemporaryFile.
+            # Copy non-seekable sources to a disk-backed temporary file.
+            try:
+                source.seek(0)
+                source.tell()
+            except (AttributeError, OSError, ValueError):
+                temporary_source = tempfile.TemporaryFile(mode="w+b")
+                while True:
+                    chunk = source.read(streaming_encryption.CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    temporary_source.write(chunk)
+                temporary_source.seek(0)
+                source = temporary_source
+
+            # First bounded pass: calculate both Odoo's SHA-1 checksum and
+            # the SHA-256 digest authenticated by the ODSDOC01 format.
+            sha1 = hashlib.sha1()
+            sha256 = hashlib.sha256()
+            plaintext_size = 0
+            head = b""
+
+            source.seek(0)
+            while True:
+                chunk = source.read(streaming_encryption.CHUNK_SIZE)
+                if not chunk:
+                    break
+
+                if len(head) < 2048:
+                    head += chunk[:2048 - len(head)]
+
+                sha1.update(chunk)
+                sha256.update(chunk)
+                plaintext_size += len(chunk)
+
+            source.seek(0)
+
+            supplied_mimetype = (mimetype or "").strip().lower()
+            if not supplied_mimetype or supplied_mimetype == "application/octet-stream":
+                supplied_mimetype = guess_mimetype(
+                    head,
+                    default="application/octet-stream",
+                )
+
+            # Keep Odoo's XML/plain-text MIME policy. No binary payload is
+            # passed through _check_contents, so it cannot materialize data.
+            checked_values = self._check_contents({
+                "name": filename,
+                "mimetype": supplied_mimetype,
+            })
+            final_mimetype = checked_values["mimetype"]
+
+            index_content = self._stream_index_content(
+                source,
+                final_mimetype,
+            )
+
+            # Match Odoo's empty-file behavior: no external object is created.
+            attachment = self.create({
+                "name": filename,
+                "type": "binary",
+                "mimetype": final_mimetype,
+                "res_model": res_model or False,
+                "res_id": int(res_id or 0),
+            })
+
+            if plaintext_size == 0:
+                return attachment
+
+            bucket = os.getenv(
+                "ODOO_SECURE_MINIO_BUCKET", ""
+            ).strip()
+            if not bucket:
+                raise UserError("Secure storage bucket is not configured.")
+
+            object_key = uuid.uuid4().hex
+
+            # A new random DEK is generated and wrapped for every attachment.
+            data_key = key_provider.generate_data_key()[0]
+            wrapped_key = key_provider.wrap_data_key(data_key)
+            plaintext_sha256 = sha256.hexdigest()
+
+            encrypted_stream = streaming_encryption.encrypt_stream(
+                source=source,
+                key=data_key,
+                document_id=object_key,
+                plaintext_size=plaintext_size,
+                plaintext_sha256=plaintext_sha256,
+            )
+
+            object_storage.put_encrypted_stream(
+                stream=object_storage.IteratorReader(encrypted_stream),
+                plaintext_size=plaintext_size,
+                chunk_size=streaming_encryption.CHUNK_SIZE,
+                object_name=object_key,
+                metadata={
+                    "storage-format": "odoo-vault-aesgcm-stream-v1",
+                    "wrapped-key": wrapped_key,
+                    "plaintext-size": str(plaintext_size),
+                    "plaintext-sha256": plaintext_sha256,
+                },
+            )
+            uploaded = True
+
+            # If the PostgreSQL transaction rolls back after the MinIO
+            # upload, remove the unreferenced ciphertext object.
+            def cleanup_after_rollback(name=object_key):
+                try:
+                    object_storage.remove_object(name)
+                except Exception:
+                    _logger.exception(
+                        "Failed to clean up rolled-back streamed attachment %s",
+                        name,
+                    )
+
+            self.env.cr.postrollback.add(cleanup_after_rollback)
+
+            store_fname = f"{_PREFIX}{bucket}/{object_key}"
+            internal_values = {
+                "file_size": plaintext_size,
+                "checksum": sha1.hexdigest(),
+                "index_content": index_content,
+                "store_fname": store_fname,
+                "db_datas": False,
+            }
+
+            # Bypass ir.attachment.write's deliberate removal of computed
+            # storage fields. This is the same internal pattern Odoo uses
+            # in _set_attachment_data() when calling super(Base, record).
+            super(BaseIrAttachment, attachment.sudo()).write(
+                internal_values
+            )
+            attachment.invalidate_recordset([
+                "file_size", "checksum", "index_content",
+                "store_fname", "db_datas", "raw", "datas",
+            ])
+
+            _logger.info(
+                "SECURE_STREAM_UPLOAD_PERFORMANCE "
+                "status=SUCCESS object=%s size_bytes=%s chunks=%s",
+                object_key,
+                plaintext_size,
+                max(
+                    1,
+                    (plaintext_size + streaming_encryption.CHUNK_SIZE - 1)
+                    // streaming_encryption.CHUNK_SIZE,
+                ),
+            )
+            return attachment
+
+        except Exception:
+            if uploaded and object_key:
+                try:
+                    object_storage.remove_object(object_key)
+                except Exception:
+                    _logger.exception(
+                        "Failed to clean up streamed attachment object %s",
+                        object_key,
+                    )
+
+            if attachment and attachment.exists():
+                try:
+                    attachment.sudo().unlink()
+                except Exception:
+                    _logger.exception(
+                        "Failed to remove incomplete streamed attachment record."
+                    )
+            raise
+
+        finally:
+            if temporary_source is not None:
+                temporary_source.close()
 
     @api.model
     def _file_write(self, value, checksum):

@@ -115,14 +115,29 @@ class IrAttachment(models.Model):
         if index_type != "text":
             return index_type
 
+        # Odoo stores index_content as a PostgreSQL text value. Keep this
+        # secondary metadata bounded independently from the document size.
+        try:
+            max_index_bytes = max(
+                0,
+                int(os.getenv("ODOO_SECURE_STORAGE_MAX_INDEX_BYTES", "1048576")),
+            )
+        except ValueError:
+            max_index_bytes = 1048576
+
         source.seek(0)
         pending = b""
         indexed_runs = []
+        indexed_bytes = 0
 
-        while True:
-            chunk = source.read(streaming_encryption.CHUNK_SIZE)
+        while indexed_bytes < max_index_bytes:
+            chunk = source.read(min(
+                streaming_encryption.CHUNK_SIZE,
+                max_index_bytes - indexed_bytes,
+            ))
             if not chunk:
                 break
+            indexed_bytes += len(chunk)
 
             data = pending + chunk
             trailing = re.search(rb"[\x20-\x7E]+$", data)

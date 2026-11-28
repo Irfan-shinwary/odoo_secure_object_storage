@@ -6,7 +6,7 @@ import os
 import unicodedata
 
 from odoo import _, http
-from odoo.addons.web.controllers.binary import clean
+from odoo.addons.web.controllers.binary import Binary, clean
 from odoo.http import request
 from odoo.exceptions import AccessError
 
@@ -19,7 +19,7 @@ def _secure_storage_enabled():
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-class SecureAttachmentBinaryController(http.Controller):
+class SecureAttachmentBinaryController(Binary):
     """Preserve Odoo's native upload route while streaming secure uploads."""
 
     @http.route(

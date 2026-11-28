@@ -226,6 +226,42 @@ class IrAttachment(models.Model):
             })
             final_mimetype = checked_values["mimetype"]
 
+            # Odoo's configured image autoresizer uses PIL on a complete
+            # byte string. Retain that exact native behavior for configured
+            # resizable image formats; all other files remain disk-streamed.
+            if not self.env.context.get("image_no_postprocess"):
+                ICP = self.env["ir.config_parameter"].sudo().get_param
+                resize_types = {
+                    item.strip().lower()
+                    for item in ICP(
+                        "base.image_autoresize_extensions",
+                        "png,jpeg,bmp,tiff",
+                    ).split(",")
+                    if item.strip()
+                }
+                image_type = final_mimetype.partition("/")[2]
+                max_resolution = ICP(
+                    "base.image_autoresize_max_px",
+                    "1920x1920",
+                )
+                if (
+                    final_mimetype.startswith("image/")
+                    and image_type in resize_types
+                    and str(max_resolution).lower() not in {
+                        "0", "false", "no", "off", ""
+                    }
+                ):
+                    source.seek(0)
+                    image_data = source.read()
+                    return self.create({
+                        "name": filename,
+                        "type": "binary",
+                        "mimetype": final_mimetype,
+                        "res_model": res_model or False,
+                        "res_id": int(res_id or 0),
+                        "raw": image_data,
+                    })
+
             index_content = self._stream_index_content(
                 source,
                 final_mimetype,
